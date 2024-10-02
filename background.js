@@ -5,6 +5,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       downloadImages(request.images);
       sendResponse({ status: 'Downloading started' });
     }
+    // Return true to indicate that the response is sent asynchronously
+    return true;
   });
   
   function downloadImages(images) {

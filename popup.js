@@ -61,14 +61,12 @@ document.getElementById('startBtn').addEventListener('click', () => {
   
   // Function to download images
   function downloadImages(images) {
-    const background = chrome.runtime.getBackgroundPage
-      ? chrome.runtime.getBackgroundPage
-      : null;
-  
-    if (background) {
-      background.downloadImages(images);
-    } else {
-      chrome.runtime.sendMessage({ action: 'downloadImages', images: images });
-    }
+    chrome.runtime.sendMessage({ action: 'downloadImages', images: images }, (response) => {
+      if (chrome.runtime.lastError) {
+        updateStatus('Error: ' + chrome.runtime.lastError.message);
+      } else {
+        updateStatus(response.status);
+      }
+    });
   }
   
