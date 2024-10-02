@@ -1,29 +1,39 @@
 // background.js
 
+// Listen for messages from the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'downloadImages') {
-      downloadImages(request.images);
-      sendResponse({ status: 'Downloading started' });
+      downloadFiles(request.images, 'images');
+      sendResponse({ status: 'Image batch download started.' });
     }
-    // Return true to indicate that the response is sent asynchronously
+    
+    if (request.action === 'downloadWebmFiles') {
+      downloadFiles(request.webmFiles, 'webm');
+      sendResponse({ status: 'WebM batch download started.' });
+    }
+    
+    // Indicates that the response will be sent asynchronously
     return true;
   });
   
-  function downloadImages(images) {
-    images.forEach((url, index) => {
-      // Extract the image filename
-      const urlParts = url.split('/');
-      let filename = urlParts[urlParts.length - 1].split('?')[0]; // Remove query params
+  // Function to handle downloading files
+  function downloadFiles(urls, type) {
+    urls.forEach((url, index) => {
+      // Extract the filename from the URL
+      let filename = url.split('/').pop().split('?')[0] || `${type}_file_${index}`;
   
-      // Handle cases where filename might be empty
-      if (!filename) {
-        filename = `image_${index}.png`;
+      // Append appropriate extension if missing
+      if (!filename.includes('.')) {
+        filename += type === 'images' ? '.png' : '.webm';
       }
+  
+      // Define the download path
+      const downloadPath = type === 'images' ? `ImageDownloader/Images/${filename}` : `ImageDownloader/WebM/${filename}`;
   
       // Initiate the download
       chrome.downloads.download({
         url: url,
-        filename: `ImageDownloader/${filename}`,
+        filename: downloadPath,
         conflictAction: 'uniquify',
         saveAs: false
       }, (downloadId) => {

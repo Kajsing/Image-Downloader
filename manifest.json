@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "Image Downloader",
-    "version": "1.0",
-    "description": "Downloads all images from the current webpage, including images linked within images.",
+    "version": "1.4",
+    "description": "Downloads all images and WebM files from the current webpage in batches, with per-tab state management.",
     "permissions": [
       "activeTab",
       "downloads",

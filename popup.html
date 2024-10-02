@@ -7,8 +7,37 @@
 </head>
 <body>
   <h2>Image Downloader</h2>
-  <button id="startBtn">Start</button>
-  <button id="saveBtn" disabled>Save</button>
+  
+  <div class="section">
+    <h3>Images</h3>
+    <label>
+      <input type="checkbox" id="excludeExternal">
+      Exclude external images
+    </label>
+    
+    <label for="imageBatchSize">Batch Size:</label>
+    <input type="number" id="imageBatchSize" value="50" min="1" style="width: 100%; padding: 5px; margin-bottom: 10px;">
+    
+    <button id="scanImagesBtn">Scan Images</button>
+    <button id="downloadImagesBtn" disabled>Download Images</button>
+    
+    <div id="imageBatchInfo">Batches: 0/0</div>
+    <div id="imageCountdown"></div>
+  </div>
+  
+  <div class="section">
+    <h3>WebM Files</h3>
+    
+    <label for="webmBatchSize">Batch Size:</label>
+    <input type="number" id="webmBatchSize" value="5" min="1" style="width: 100%; padding: 5px; margin-bottom: 10px;">
+    
+    <button id="scanWebmBtn">Scan WebM Files</button>
+    <button id="downloadWebmBtn" disabled>Download WebM Files</button>
+    
+    <div id="webmBatchInfo">Batches: 0/0</div>
+    <div id="webmCountdown"></div>
+  </div>
+  
   <div id="status"></div>
 
   <script src="popup.js"></script>
