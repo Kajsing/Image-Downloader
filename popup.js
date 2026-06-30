@@ -4,6 +4,12 @@ const STORAGE_PREFIX = 'guided_media_';
 const EXTENSIONS = ['jpg', 'png', 'gif', 'webp', 'svg', 'webm', 'mp4'];
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
 const VIDEO_EXTENSIONS = new Set(['webm', 'mp4']);
+const PAGE_FETCH_TIMEOUT_MS = 30000;
+const PAGE_FETCH_CONCURRENCY = {
+  conservative: 1,
+  normal: 2,
+  fast: 4
+};
 const DEFAULT_FILTERS = {
   type: 'all',
   extensions: EXTENSIONS,
@@ -499,74 +505,150 @@ async function downloadSelected() {
   const pageDownloads = selected.filter((candidate) => candidate.downloadMode === 'page');
   const chromeDownloads = selected.filter((candidate) => candidate.downloadMode !== 'page');
 
+  if (chromeDownloads.length) {
+    await queuePreparedDownloads(sessionId, chromeDownloads);
+  }
+
   if (pageDownloads.length) {
+    await prepareAndQueuePageDownloads(sessionId, pageDownloads);
+  }
+
+  finishDownloadSessionIfDone();
+  persistState();
+  render();
+}
+
+async function prepareAndQueuePageDownloads(sessionId, pageDownloads) {
+  let fetchConcurrency = pageFetchConcurrencyForSpeed(state.downloadSettings.speedMode);
+  let index = 0;
+
+  while (index < pageDownloads.length && state.progress.active) {
+    const batch = pageDownloads.slice(index, index + fetchConcurrency);
+    const start = index + 1;
+    const end = index + batch.length;
+    setStatus(`Preparing forum attachments ${start}-${end}/${pageDownloads.length}...`, 'Downloading');
+    persistState();
+    render();
+
     try {
       const results = await executeScriptWithArgs(state.tabId, fetchMediaFromPage, [
-        pageDownloads.map((candidate) => ({
-          url: candidate.url,
-          filename: candidate.filename || '',
-          extension: candidate.extension,
-          type: candidate.type,
-          id: candidate.id
-        }))
+        batch.map(toPageFetchItem),
+        {
+          concurrency: fetchConcurrency,
+          timeoutMs: PAGE_FETCH_TIMEOUT_MS
+        }
       ]);
       const result = results?.[0]?.result || {};
       const fetchedItems = Array.isArray(result.items) ? result.items : [];
       const failed = Array.isArray(result.failed) ? result.failed : [];
 
-      state.progress.failed += failed.length;
-      if (failed.length) {
-        state.progress.latestError = failed[0].error || 'An attachment fetch failed.';
+      if (fetchedItems.length) {
+        await queuePreparedDownloads(sessionId, fetchedItems);
       }
-      chromeDownloads.push(...fetchedItems);
-    } catch (error) {
-      state.progress.failed += pageDownloads.length;
-      state.progress.latestError = error.message;
-    }
-  }
 
-  if (!chromeDownloads.length) {
+      if (failed.length) {
+        markPreparedDownloadsFailed(failed, failed[0].error || 'An attachment fetch failed.');
+        fetchConcurrency = reducePageFetchConcurrency(fetchConcurrency);
+      }
+    } catch (error) {
+      markPreparedDownloadsFailed(batch, error.message || 'Could not prepare attachments.');
+      fetchConcurrency = reducePageFetchConcurrency(fetchConcurrency);
+    }
+
+    index += batch.length;
     finishDownloadSessionIfDone();
     persistState();
     render();
+  }
+
+  if (state.progress.active) {
+    setStatus('Forum attachments prepared; waiting for downloads...', 'Downloading');
+  }
+}
+
+async function queuePreparedDownloads(sessionId, candidates) {
+  if (!candidates.length) {
     return;
   }
 
-  chrome.runtime.sendMessage(
-    {
-      action: 'downloadSelectedMedia',
-      sessionId,
-      page: {
-        host: state.pageHost,
-        title: state.pageTitle,
-        url: state.pageUrl
-      },
-      downloadSettings: {
-        speedMode: normalizeDownloadSpeed(state.downloadSettings.speedMode)
-      },
-      items: chromeDownloads.map((candidate) => ({
-        id: candidate.id,
-        url: candidate.url,
-        type: candidate.type,
-        extension: candidate.extension,
-        filename: candidate.filename
-      }))
-    },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        state.progress.active = false;
-        state.progress.latestError = chrome.runtime.lastError.message;
-        setStatus(`Download failed: ${chrome.runtime.lastError.message}`, 'Error');
-        persistState();
-        render();
-        return;
-      }
+  try {
+    const response = await sendDownloadsToBackground(sessionId, candidates.map(toDownloadItem));
+    setStatus(response?.status || `${candidates.length} downloads queued in Chrome.`, 'Downloading');
+  } catch (error) {
+    markPreparedDownloadsFailed(candidates, error.message || 'Chrome could not start the downloads.');
+  }
 
-      setStatus(response?.status || 'Downloads queued in Chrome.', 'Downloading');
-      persistState();
-      render();
+  finishDownloadSessionIfDone();
+  persistState();
+  render();
+}
+
+function sendDownloadsToBackground(sessionId, items) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        action: 'downloadSelectedMedia',
+        sessionId,
+        page: {
+          host: state.pageHost,
+          title: state.pageTitle,
+          url: state.pageUrl
+        },
+        downloadSettings: {
+          speedMode: normalizeDownloadSpeed(state.downloadSettings.speedMode)
+        },
+        items
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        resolve(response);
+      }
+    );
+  });
+}
+
+function toDownloadItem(candidate) {
+  return {
+    id: candidate.id,
+    url: candidate.url,
+    type: candidate.type,
+    extension: candidate.extension,
+    filename: candidate.filename
+  };
+}
+
+function toPageFetchItem(candidate) {
+  return {
+    url: candidate.url,
+    filename: candidate.filename || '',
+    extension: candidate.extension,
+    type: candidate.type,
+    id: candidate.id
+  };
+}
+
+function markPreparedDownloadsFailed(candidates, error) {
+  state.progress.failed += candidates.length;
+  state.progress.latestError = error;
+
+  candidates.forEach((candidate) => {
+    const item = state.candidates.find((stateCandidate) => stateCandidate.id === candidate.id);
+    if (item) {
+      item.warning = error;
     }
-  );
+  });
+}
+
+function pageFetchConcurrencyForSpeed(speedMode) {
+  return PAGE_FETCH_CONCURRENCY[normalizeDownloadSpeed(speedMode)] || PAGE_FETCH_CONCURRENCY.normal;
+}
+
+function reducePageFetchConcurrency(concurrency) {
+  return Math.max(1, Math.min(2, Math.floor(concurrency / 2) || 1));
 }
 
 function finishDownloadSessionIfDone() {
@@ -1190,9 +1272,12 @@ function collectMediaCandidates() {
   };
 }
 
-async function fetchMediaFromPage(items) {
+async function fetchMediaFromPage(items, options = {}) {
   const fetchedItems = [];
   const failed = [];
+  const pendingItems = [...items];
+  const concurrency = Math.max(1, Math.min(Number(options.concurrency) || 1, pendingItems.length || 1));
+  const timeoutMs = Math.max(5000, Number(options.timeoutMs) || 30000);
 
   function blobToDataUrl(blob) {
     return new Promise((resolve, reject) => {
@@ -1203,12 +1288,18 @@ async function fetchMediaFromPage(items) {
     });
   }
 
-  for (const item of items) {
+  async function fetchItem(item) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
     try {
       const response = await fetch(item.url, {
         credentials: 'include',
         cache: 'no-store',
-        referrer: window.location.href
+        referrer: window.location.href,
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -1226,11 +1317,25 @@ async function fetchMediaFromPage(items) {
       });
     } catch (error) {
       failed.push({
+        id: item.id,
         url: item.url,
-        error: error.message || 'Could not fetch attachment.'
+        error: error.name === 'AbortError'
+          ? 'Attachment fetch timed out.'
+          : error.message || 'Could not fetch attachment.'
       });
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
+
+  async function worker() {
+    while (pendingItems.length) {
+      const item = pendingItems.shift();
+      await fetchItem(item);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, worker));
 
   return { items: fetchedItems, failed };
 }

@@ -82,6 +82,22 @@ chrome.downloads.onChanged.addListener((delta) => {
 
 function queueDownloads(sessionId, page, items, profileName = 'normal') {
   const profile = SPEED_PROFILES[profileName] || SPEED_PROFILES.normal;
+  const existingSession = downloadSessions.get(sessionId);
+
+  if (existingSession && !existingSession.stopped) {
+    const startIndex = existingSession.nextIndex;
+    existingSession.pending.push(
+      ...items.map((item, index) => ({
+        ...item,
+        index: startIndex + index,
+        attempts: 0
+      }))
+    );
+    existingSession.nextIndex += items.length;
+    pumpDownloads(existingSession);
+    return existingSession;
+  }
+
   const folder = buildDownloadFolder(page);
   const session = {
     id: sessionId,
@@ -95,6 +111,7 @@ function queueDownloads(sessionId, page, items, profileName = 'normal') {
       index,
       attempts: 0
     })),
+    nextIndex: items.length,
     activeCount: 0,
     pumpTimer: null,
     stopped: false

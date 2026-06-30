@@ -17,8 +17,9 @@ download only the selected media.
 - Detects BBCode/forum attachment originals from `data-fullsize-url` and
   thumbnail links.
 - Preserves attachment filenames when forum metadata exposes them.
-- Uses same-page thumbnail snapshots and page-session fetches for attachment
-  endpoints that need the page session, then saves through Chrome downloads.
+- Uses same-page thumbnail snapshots and timeout-protected page-session fetch
+  batches for attachment endpoints that need the page session, then saves
+  through Chrome downloads.
 - Supports `jpg`, `png`, `gif`, `webp`, `svg`, `webm`, and `mp4`.
 - Filters by media type, extension, same-origin, and minimum dimension.
 - Defaults the minimum-size filter to 65px to avoid most icons while keeping
