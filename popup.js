@@ -759,6 +759,7 @@ function collectMediaCandidates() {
   const imageExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
   const videoExtensions = new Set(['webm', 'mp4']);
   const pageUrl = new URL(window.location.href);
+  const baseUrl = document.baseURI || window.location.href;
   const candidatesByUrl = new Map();
 
   function normalizeUrl(value) {
@@ -767,7 +768,7 @@ function collectMediaCandidates() {
     }
 
     try {
-      return new URL(value, window.location.href).href;
+      return new URL(value, baseUrl).href;
     } catch (error) {
       return null;
     }
@@ -902,9 +903,9 @@ function collectMediaCandidates() {
 
     const imageUrl = normalizeUrl(image.currentSrc || image.src);
     const linkedUrl = normalizeUrl(
-      image.dataset?.fullsizeUrl
+      parentLink.href
+      || image.dataset?.fullsizeUrl
       || parentLink.dataset?.fullsizeUrl
-      || parentLink.href
     );
     const isAttachmentPreview = Boolean(
       image.dataset?.fullsizeUrl
@@ -922,8 +923,8 @@ function collectMediaCandidates() {
 
   Array.from(document.querySelectorAll('a[href] img[data-fullsize-url], a[href].bbcode-attachment img, img[data-fullsize-url]')).forEach((image) => {
     const parentLink = image.closest ? image.closest('a[href]') : null;
-    const fullsizeUrl = image.dataset?.fullsizeUrl || parentLink?.href;
-    const previewUrl = image.dataset?.thumbUrl || image.currentSrc || image.src;
+    const fullsizeUrl = parentLink?.href || image.dataset?.fullsizeUrl;
+    const previewUrl = image.currentSrc || image.src || image.dataset?.thumbUrl;
     const extension = extensionFromUrl(fullsizeUrl) || extensionFromText(image.alt);
     const dimensions = parseDimensions(image.alt);
     const filename = filenameFromText(image.alt);
