@@ -397,29 +397,31 @@ function renderFooter() {
 }
 
 function getFilteredCandidates() {
-  return state.candidates.filter((candidate) => {
-    if (state.filters.type !== 'all' && candidate.type !== state.filters.type) {
-      return false;
-    }
-
-    if (!state.filters.extensions.includes(candidate.extension)) {
-      return false;
-    }
-
-    if (state.filters.sameOriginOnly && !candidate.sameOrigin) {
-      return false;
-    }
-
-    if (state.filters.minDimension > 0 && candidate.width && candidate.height) {
-      return Math.min(candidate.width, candidate.height) >= state.filters.minDimension;
-    }
-
-    return true;
-  });
+  return state.candidates.filter((candidate) => passesCurrentFilters(candidate));
 }
 
 function getSelectedCandidates() {
-  return state.candidates.filter((candidate) => candidate.selected);
+  return state.candidates.filter((candidate) => candidate.selected && passesCurrentFilters(candidate));
+}
+
+function passesCurrentFilters(candidate) {
+  if (state.filters.type !== 'all' && candidate.type !== state.filters.type) {
+    return false;
+  }
+
+  if (!state.filters.extensions.includes(candidate.extension)) {
+    return false;
+  }
+
+  if (state.filters.sameOriginOnly && !candidate.sameOrigin) {
+    return false;
+  }
+
+  if (state.filters.minDimension > 0 && candidate.width && candidate.height) {
+    return Math.min(candidate.width, candidate.height) >= state.filters.minDimension;
+  }
+
+  return true;
 }
 
 function resetFilters() {
@@ -770,6 +772,14 @@ async function loadStateForTab(tabId) {
     return;
   }
 
+  if (!isSamePageUrl(savedState.pageUrl, state.pageUrl)) {
+    await storageRemove(key);
+    state.progress = createDefaultState().progress;
+    state.candidates = [];
+    setStatus('Scan the active tab to collect media candidates.', 'Ready');
+    return;
+  }
+
   state = {
     ...createDefaultState(),
     ...savedState,
@@ -838,6 +848,18 @@ function persistState() {
       statusMessage: state.statusMessage,
       statusLabel: state.statusLabel
     }
+  });
+}
+
+function storageRemove(key) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.remove(key, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
   });
 }
 
@@ -938,6 +960,18 @@ function hostFromUrl(url) {
     return new URL(url).host;
   } catch (error) {
     return '';
+  }
+}
+
+function isSamePageUrl(leftUrl, rightUrl) {
+  try {
+    const left = new URL(leftUrl);
+    const right = new URL(rightUrl);
+    return left.origin === right.origin
+      && left.pathname === right.pathname
+      && left.search === right.search;
+  } catch (error) {
+    return String(leftUrl || '') === String(rightUrl || '');
   }
 }
 

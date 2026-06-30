@@ -11,7 +11,8 @@ The extension is a Manifest V3 Chrome Extension with:
 - `background.js` as the service worker that performs downloads through
   `chrome.downloads.download` and reports progress back to the popup.
 - `chrome.storage.local` for per-tab candidate, filter, selection, and progress
-  state.
+  state. Saved scan state is restored only when the active tab still has the
+  same page URL.
 
 ## Popup UI
 

@@ -25,7 +25,8 @@ download only the selected media.
 - Defaults the minimum-size filter to 65px to avoid most icons while keeping
   normal thumbnails visible.
 - Selection helpers for visible results and likely wallpapers.
-- Per-tab state stored in `chrome.storage.local`.
+- Per-tab state stored in `chrome.storage.local`, restored only when the current
+  page URL still matches the saved scan.
 - Selected downloads are saved under `ImageDownloader/{host}_{date}/`.
 - Download progress reports queued, completed, and failed items while the popup
   is open.
