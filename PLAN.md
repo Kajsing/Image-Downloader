@@ -7,6 +7,13 @@ images and videos. The extension should scan the active page, show useful
 candidates, let the user filter and select them, and download only the selected
 files with clear progress.
 
+## Visual Direction
+
+Use the MVP mockup at `docs/mockups/guided-media-collector-mvp.png` as the
+design reference while building the popup. Treat it as direction, not a
+pixel-perfect spec: compact tool UI, scan summary, filters, selectable media
+previews, a "Select likely wallpapers" action, and selected-download progress.
+
 ## Non-Goals
 
 - No backend service.
