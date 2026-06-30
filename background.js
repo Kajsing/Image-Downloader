@@ -88,13 +88,15 @@ function buildDownloadFolder(page) {
 }
 
 function buildFilename(item, index) {
-  let filename = '';
+  let filename = sanitizePathPart(item.filename || '');
 
-  try {
-    const pathname = new URL(item.url).pathname;
-    filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '');
-  } catch (error) {
-    filename = '';
+  if (!filename) {
+    try {
+      const pathname = new URL(item.url).pathname;
+      filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '');
+    } catch (error) {
+      filename = '';
+    }
   }
 
   if (!filename) {

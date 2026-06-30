@@ -43,6 +43,11 @@ Responsibilities:
   anchor.
 - Treat 4chan `.file` blocks as original media records, using `.fileThumb` only
   as a preview and parsing dimensions from `.fileText`.
+- Treat BBCode/forum attachment thumbnails with `data-fullsize-url` or
+  attachment links as original media records, even when the original URL is a
+  fetch endpoint without a file extension.
+- Preserve attachment filenames from metadata when available so fetch endpoints
+  still download with useful names.
 - Dedupe candidates by normalized URL.
 
 The scanner does not crawl unrelated pages in the MVP.
@@ -59,6 +64,7 @@ Each candidate uses this shape in popup state:
   type: "image" | "video",
   extension: string,
   source: string,
+  filename: string,
   pageHost: string,
   sameOrigin: boolean,
   width: number | null,

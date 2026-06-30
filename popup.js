@@ -207,6 +207,7 @@ function normalizeCandidate(candidate, index) {
     type: candidate.type,
     extension,
     source: candidate.source || 'page',
+    filename: candidate.filename || '',
     pageHost: candidate.pageHost || state.pageHost,
     sameOrigin: Boolean(candidate.sameOrigin),
     width: toPositiveNumber(candidate.width),
@@ -453,7 +454,11 @@ function isLikelyWallpaper(candidate) {
     return longSide >= 1920 && shortSide >= 1080;
   }
 
-  return (candidate.source === 'linked original' || candidate.source === '4chan original')
+  return (
+    candidate.source === 'linked original'
+    || candidate.source === '4chan original'
+    || candidate.source === 'attachment original'
+  )
     && (candidate.type === 'image' || candidate.type === 'video');
 }
 
@@ -490,7 +495,8 @@ async function downloadSelected() {
         id: candidate.id,
         url: candidate.url,
         type: candidate.type,
-        extension: candidate.extension
+        extension: candidate.extension,
+        filename: candidate.filename
       }))
     },
     (response) => {
@@ -781,6 +787,21 @@ function collectMediaCandidates() {
     }
   }
 
+  function extensionFromText(text) {
+    const match = String(text || '').match(/\.([a-z0-9]{2,5})(?:\s|$)/i);
+    if (!match) {
+      return '';
+    }
+
+    const extension = match[1].toLowerCase();
+    return extension === 'jpeg' ? 'jpg' : extension;
+  }
+
+  function filenameFromText(text) {
+    const match = String(text || '').match(/Name:\s*([^\n\r]+)/i);
+    return match ? match[1].trim() : '';
+  }
+
   function typeFromExtension(extension) {
     if (imageExtensions.has(extension) || extension === 'jpg') {
       return 'image';
@@ -821,9 +842,10 @@ function collectMediaCandidates() {
       return;
     }
 
-    const extension = extensionFromUrl(url);
+    const extension = input.extension || extensionFromUrl(url);
     const type = input.type || typeFromExtension(extension);
-    if (!type || (!imageExtensions.has(extension) && !videoExtensions.has(extension) && extension !== 'jpg')) {
+    const hasKnownExtension = imageExtensions.has(extension) || videoExtensions.has(extension) || extension === 'jpg';
+    if (!type || (!hasKnownExtension && !input.allowUnknownExtension)) {
       return;
     }
 
@@ -832,8 +854,9 @@ function collectMediaCandidates() {
       url,
       previewUrl: normalizeUrl(input.previewUrl) || url,
       type,
-      extension,
+      extension: extension || type,
       source: input.source || 'page',
+      filename: input.filename || '',
       pageHost: pageUrl.host,
       sameOrigin: sameOrigin(url),
       width: input.width || null,
@@ -851,7 +874,14 @@ function collectMediaCandidates() {
     if (!existing.height && candidate.height) {
       existing.height = candidate.height;
     }
-    if (candidate.source === 'linked original' || candidate.source === '4chan original') {
+    if (!existing.filename && candidate.filename) {
+      existing.filename = candidate.filename;
+    }
+    if (
+      candidate.source === 'linked original'
+      || candidate.source === '4chan original'
+      || candidate.source === 'attachment original'
+    ) {
       existing.source = candidate.source;
       existing.previewUrl = candidate.previewUrl;
     }
@@ -871,9 +901,45 @@ function collectMediaCandidates() {
     }
 
     const imageUrl = normalizeUrl(image.currentSrc || image.src);
-    const linkedUrl = normalizeUrl(parentLink.href);
-    return Boolean(imageUrl && linkedUrl && imageUrl !== linkedUrl && isMediaUrl(linkedUrl));
+    const linkedUrl = normalizeUrl(
+      image.dataset?.fullsizeUrl
+      || parentLink.dataset?.fullsizeUrl
+      || parentLink.href
+    );
+    const isAttachmentPreview = Boolean(
+      image.dataset?.fullsizeUrl
+      || image.dataset?.size === 'thumb'
+      || parentLink.classList?.contains('bbcode-attachment')
+    );
+
+    return Boolean(
+      imageUrl
+      && linkedUrl
+      && imageUrl !== linkedUrl
+      && (isMediaUrl(linkedUrl) || isAttachmentPreview)
+    );
   }
+
+  Array.from(document.querySelectorAll('a[href] img[data-fullsize-url], a[href].bbcode-attachment img, img[data-fullsize-url]')).forEach((image) => {
+    const parentLink = image.closest ? image.closest('a[href]') : null;
+    const fullsizeUrl = image.dataset?.fullsizeUrl || parentLink?.href;
+    const previewUrl = image.dataset?.thumbUrl || image.currentSrc || image.src;
+    const extension = extensionFromUrl(fullsizeUrl) || extensionFromText(image.alt);
+    const dimensions = parseDimensions(image.alt);
+    const filename = filenameFromText(image.alt);
+
+    addCandidate({
+      url: fullsizeUrl,
+      previewUrl,
+      type: 'image',
+      extension,
+      filename,
+      source: 'attachment original',
+      width: dimensions.width,
+      height: dimensions.height,
+      allowUnknownExtension: true
+    });
+  });
 
   Array.from(document.querySelectorAll('.file')).forEach((file) => {
     const fileLink = file.querySelector('.fileText a[href], a.fileThumb[href]');
@@ -888,13 +954,16 @@ function collectMediaCandidates() {
     }
 
     const thumbnail = file.querySelector('a.fileThumb img, img');
-    const dimensions = parseDimensions(file.querySelector('.fileText')?.textContent || '');
+    const fileText = file.querySelector('.fileText');
+    const dimensions = parseDimensions(fileText?.textContent || '');
+    const filename = fileText?.querySelector('a[href]')?.title || fileText?.querySelector('a[href]')?.textContent || '';
 
     addCandidate({
       url: href,
       previewUrl: thumbnail ? thumbnail.currentSrc || thumbnail.src : href,
       type,
       source: '4chan original',
+      filename,
       width: dimensions.width,
       height: dimensions.height
     });

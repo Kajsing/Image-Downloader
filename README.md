@@ -14,6 +14,9 @@ download only the selected media.
 - Finds media from `img`, `srcset`, direct media links, `video`, and `source`
   elements.
 - Prioritizes 4chan-style original file links over their thumbnail previews.
+- Detects BBCode/forum attachment originals from `data-fullsize-url` and
+  thumbnail links.
+- Preserves attachment filenames when forum metadata exposes them.
 - Supports `jpg`, `png`, `gif`, `webp`, `svg`, `webm`, and `mp4`.
 - Filters by media type, extension, same-origin, and minimum dimension.
 - Selection helpers for visible results and likely wallpapers.
