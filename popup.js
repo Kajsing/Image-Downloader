@@ -1132,6 +1132,15 @@ async function fetchMediaFromPage(items) {
   const fetchedItems = [];
   const failed = [];
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Could not read attachment data.'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
   for (const item of items) {
     try {
       const response = await fetch(item.url, {
@@ -1162,13 +1171,4 @@ async function fetchMediaFromPage(items) {
   }
 
   return { items: fetchedItems, failed };
-}
-
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Could not read attachment data.'));
-    reader.readAsDataURL(blob);
-  });
 }
