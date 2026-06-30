@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "Image Downloader",
-    "version": "1.4",
-    "description": "Downloads all images and WebM files from the current webpage in batches, with per-tab state management.",
+    "version": "2.0",
+    "description": "Guided media collector for scanning, filtering, selecting, and downloading images and videos from the active page.",
     "permissions": [
       "activeTab",
       "downloads",
@@ -26,4 +26,3 @@
       "128": "icons/icon128.png"
     }
   }
-  

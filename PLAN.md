@@ -40,7 +40,7 @@ Done when:
 
 ## Milestone 2: Unified Scan Model
 
-Status: pending
+Status: complete
 
 - Replace separate image/WebM scan state with one media candidate model.
 - Scan images from `img[src]`, `img[srcset]`, and direct media anchors.
@@ -56,7 +56,7 @@ Done when:
 
 ## Milestone 3: Guided Popup UI
 
-Status: pending
+Status: complete
 
 - Replace separate sections with a single scan/filter/select/download flow.
 - Add filters for type, extension, same-origin, minimum dimension, and likely
@@ -72,7 +72,7 @@ Done when:
 
 ## Milestone 4: Selected Downloads With Progress
 
-Status: pending
+Status: complete
 
 - Download only selected candidates.
 - Generate safe folder and filenames.
@@ -87,7 +87,7 @@ Done when:
 
 ## Milestone 5: Polish And Documentation
 
-Status: pending
+Status: complete
 
 - Update README with installation and usage.
 - Document permissions and privacy.

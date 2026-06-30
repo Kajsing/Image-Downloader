@@ -4,32 +4,31 @@
 
 The extension is a Manifest V3 Chrome Extension with:
 
-- `manifest.json` for permissions, popup registration, icons, and service worker.
-- `popup.html`, `popup.css`, and `popup.js` for the user interface and page scan.
+- `manifest.json` for permissions, popup registration, icons, version metadata,
+  and service worker registration.
+- `popup.html`, `popup.css`, and `popup.js` for the guided scan, filter,
+  preview/select, and selected-download UI.
 - `background.js` as the service worker that performs downloads through
-  `chrome.downloads.download`.
-- `chrome.storage.local` for per-tab scan/download state.
+  `chrome.downloads.download` and reports progress back to the popup.
+- `chrome.storage.local` for per-tab candidate, filter, selection, and progress
+  state.
 
-The current implementation has separate image and WebM flows. The MVP should
-merge these into a single media-collection flow while preserving the simple
-extension footprint.
-
-## Proposed MVP Architecture
-
-### Popup UI
+## Popup UI
 
 The popup is the command surface:
 
-- Starts page scans.
-- Renders filters.
-- Renders a compact preview/select list.
+- Starts active-tab page scans.
+- Renders scan summary counts for all media, images, and videos.
+- Renders filters for media type, extension, same-origin, and minimum size.
+- Renders a compact selectable preview grid.
+- Provides selection helpers for visible results and likely wallpapers.
 - Starts selected downloads.
-- Displays scan and download status.
+- Displays queued, completed, failed, and latest-error download status.
 
-The popup should remain usable at extension-popup size. Prefer dense controls
-over marketing-style layout.
+The popup is intentionally dense and practical. It should feel like a repeated
+use tool, not a marketing page.
 
-### Page Scanner
+## Page Scanner
 
 The scanner runs in the active tab via `chrome.scripting.executeScript`.
 
@@ -38,61 +37,69 @@ Responsibilities:
 - Collect image and video candidates from DOM elements.
 - Normalize URLs to absolute URLs.
 - Infer media type and extension.
-- Mark candidates with source hints, such as `img`, `srcset`, `anchor`,
-  `video`, or `source`.
+- Mark candidates with source hints, such as `image element`, `srcset`,
+  `linked original`, `direct link`, `video element`, or `video source`.
 - Prefer original media links when a thumbnail is wrapped in a direct media
   anchor.
+- Dedupe candidates by normalized URL.
 
-The scanner should not download or crawl unrelated pages in the MVP.
+The scanner does not crawl unrelated pages in the MVP.
 
-### Media Model
+## Media Model
 
-Each candidate should use a stable shape:
+Each candidate uses this shape in popup state:
 
 ```js
 {
   id: string,
   url: string,
+  previewUrl: string,
   type: "image" | "video",
   extension: string,
   source: string,
   pageHost: string,
+  sameOrigin: boolean,
   width: number | null,
   height: number | null,
-  selected: boolean
+  selected: boolean,
+  warning: string
 }
 ```
 
-`id` can be derived from normalized URL for the MVP.
+## State
 
-### State
+State is stored with a key scoped to the tab id.
 
-Use `chrome.storage.local` with a key scoped to the tab id.
+State includes:
 
-State should include:
-
+- Current page metadata.
 - Current candidates.
 - Current filters.
 - Current selection.
 - Download progress.
+- Last status message.
 
-### Background Service Worker
+## Background Service Worker
 
 The background worker owns downloads.
 
 Responsibilities:
 
-- Receive selected candidates.
-- Generate safe filenames and folder paths.
+- Receive selected media candidates from the popup.
+- Generate safe filenames and dated host folders.
 - Start downloads with `conflictAction: "uniquify"`.
-- Return queued/download-start failures to the popup.
+- Track active Chrome download ids while the service worker is alive.
+- Report completed and failed downloads back to the popup.
 
-Long-term progress tracking can use `chrome.downloads.onChanged`, but MVP can
-start with queued/completed-by-callback status if kept clear in the UI.
+Downloads are saved under:
+
+```text
+ImageDownloader/{host}_{yyyy-mm-dd}/
+```
 
 ## Security Notes
 
-- Avoid broad host permissions unless a milestone requires them.
+- Avoid broad host permissions unless a future milestone requires them.
 - Do not execute remote code.
 - Do not add telemetry.
 - Download only media URLs surfaced from the active page and selected by the
@@ -101,9 +108,14 @@ start with queued/completed-by-callback status if kept clear in the UI.
 
 ## Known Current Issues
 
-- Current UI downloads batches without previewing individual files.
+- A full manual Chrome smoke test should still be run after loading the
+  extension unpacked.
+- Download completion progress is best-effort while the popup and service worker
+  are alive. Chrome's downloads UI remains the source of truth after that.
 
 ## Stabilization Notes
 
-- Milestone 1 defined the popup countdown behavior and fixed the 48px icon
+- Milestone 1 defined the old popup countdown behavior and fixed the 48px icon
   asset mismatch.
+- The MVP replaces the old separate image/WebM batch flows with one guided media
+  collector flow.

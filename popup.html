@@ -2,43 +2,111 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Image Downloader</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h2>Image Downloader</h2>
-  
-  <div class="section">
-    <h3>Images</h3>
-    <label>
-      <input type="checkbox" id="excludeExternal">
-      Exclude external images
-    </label>
-    
-    <label for="imageBatchSize">Batch Size:</label>
-    <input type="number" id="imageBatchSize" value="50" min="1" style="width: 100%; padding: 5px; margin-bottom: 10px;">
-    
-    <button id="scanImagesBtn">Scan Images</button>
-    <button id="downloadImagesBtn" disabled>Download Images</button>
-    
-    <div id="imageBatchInfo">Batches: 0/0</div>
-    <div id="imageCountdown"></div>
-  </div>
-  
-  <div class="section">
-    <h3>WebM Files</h3>
-    
-    <label for="webmBatchSize">Batch Size:</label>
-    <input type="number" id="webmBatchSize" value="5" min="1" style="width: 100%; padding: 5px; margin-bottom: 10px;">
-    
-    <button id="scanWebmBtn">Scan WebM Files</button>
-    <button id="downloadWebmBtn" disabled>Download WebM Files</button>
-    
-    <div id="webmBatchInfo">Batches: 0/0</div>
-    <div id="webmCountdown"></div>
-  </div>
-  
-  <div id="status"></div>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <h1>Image Downloader</h1>
+        <p id="pageHost" class="host-label">Active tab</p>
+      </div>
+      <span id="tabStatus" class="status-chip">Ready</span>
+    </header>
+
+    <section class="scan-panel" aria-label="Scan controls">
+      <button id="scanBtn" class="primary-action" type="button">Scan page</button>
+      <p id="statusText" class="status-text">Scan the active tab to collect media candidates.</p>
+    </section>
+
+    <section class="summary-grid" aria-label="Scan summary">
+      <div>
+        <strong id="totalCount">0</strong>
+        <span>media</span>
+      </div>
+      <div>
+        <strong id="imageCount">0</strong>
+        <span>images</span>
+      </div>
+      <div>
+        <strong id="videoCount">0</strong>
+        <span>videos</span>
+      </div>
+    </section>
+
+    <section class="filters" aria-label="Filters">
+      <div class="segmented" aria-label="Media type">
+        <button class="segment is-active" type="button" data-type-filter="all">All</button>
+        <button class="segment" type="button" data-type-filter="image">Images</button>
+        <button class="segment" type="button" data-type-filter="video">Videos</button>
+      </div>
+
+      <label class="toggle-row">
+        <span>Same-origin only</span>
+        <input id="sameOriginOnly" type="checkbox">
+      </label>
+
+      <div id="extensionFilters" class="chip-row" aria-label="File types"></div>
+
+      <div class="filter-row">
+        <label class="select-label" for="minDimension">
+          <span>Minimum size</span>
+          <select id="minDimension">
+            <option value="0">Any size</option>
+            <option value="720">Min 720px</option>
+            <option value="1080">Min 1080px</option>
+            <option value="1440">Min 1440px</option>
+          </select>
+        </label>
+        <button id="resetFiltersBtn" class="secondary-action" type="button">Reset filters</button>
+      </div>
+    </section>
+
+    <section class="bulk-panel" aria-label="Selection helpers">
+      <div>
+        <h2>Select likely wallpapers</h2>
+        <p>Choose high-resolution images and videos from the current results.</p>
+      </div>
+      <button id="selectLikelyBtn" class="secondary-action emphasized" type="button">Select likely</button>
+    </section>
+
+    <section class="selection-actions" aria-label="Selection actions">
+      <button id="selectAllBtn" class="link-action" type="button">Select visible</button>
+      <button id="selectNoneBtn" class="link-action" type="button">Clear visible</button>
+      <span id="visibleCount">0 visible</span>
+    </section>
+
+    <section class="results-shell" aria-label="Media results">
+      <div id="emptyState" class="empty-state">
+        No media scanned yet.
+      </div>
+      <div id="resultsList" class="results-list"></div>
+    </section>
+
+    <footer class="download-footer">
+      <div class="footer-status">
+        <div class="selection-count">
+          <strong id="selectedCount">0 selected</strong>
+          <button id="clearSelectionBtn" class="link-action" type="button">Clear</button>
+        </div>
+        <div class="progress-line">
+          <div class="progress-track" aria-hidden="true">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+          <span id="progressPercent">0%</span>
+        </div>
+        <div class="download-stats">
+          <span>Queued <strong id="queuedCount">0</strong></span>
+          <span>Done <strong id="doneCount">0</strong></span>
+          <span>Failed <strong id="failedCount">0</strong></span>
+        </div>
+        <p id="latestError" class="latest-error" hidden></p>
+      </div>
+      <button id="downloadBtn" class="download-action" type="button" disabled>Download selected</button>
+    </footer>
+  </main>
 
   <script src="popup.js"></script>
 </body>
