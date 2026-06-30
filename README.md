@@ -13,6 +13,7 @@ download only the selected media.
 - Unified page scan for images and videos.
 - Finds media from `img`, `srcset`, direct media links, `video`, and `source`
   elements.
+- Prioritizes 4chan-style original file links over their thumbnail previews.
 - Supports `jpg`, `png`, `gif`, `webp`, `svg`, `webm`, and `mp4`.
 - Filters by media type, extension, same-origin, and minimum dimension.
 - Selection helpers for visible results and likely wallpapers.

@@ -41,6 +41,8 @@ Responsibilities:
   `linked original`, `direct link`, `video element`, or `video source`.
 - Prefer original media links when a thumbnail is wrapped in a direct media
   anchor.
+- Treat 4chan `.file` blocks as original media records, using `.fileThumb` only
+  as a preview and parsing dimensions from `.fileText`.
 - Dedupe candidates by normalized URL.
 
 The scanner does not crawl unrelated pages in the MVP.

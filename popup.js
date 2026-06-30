@@ -453,7 +453,8 @@ function isLikelyWallpaper(candidate) {
     return longSide >= 1920 && shortSide >= 1080;
   }
 
-  return candidate.source === 'linked original' && (candidate.type === 'image' || candidate.type === 'video');
+  return (candidate.source === 'linked original' || candidate.source === '4chan original')
+    && (candidate.type === 'image' || candidate.type === 'video');
 }
 
 async function downloadSelected() {
@@ -790,6 +791,22 @@ function collectMediaCandidates() {
     return '';
   }
 
+  function isMediaUrl(url) {
+    return Boolean(typeFromExtension(extensionFromUrl(url)));
+  }
+
+  function parseDimensions(text) {
+    const match = String(text || '').match(/(\d{2,5})\s*x\s*(\d{2,5})/i);
+    if (!match) {
+      return { width: null, height: null };
+    }
+
+    return {
+      width: Number(match[1]),
+      height: Number(match[2])
+    };
+  }
+
   function sameOrigin(url) {
     try {
       return new URL(url).host === pageUrl.host;
@@ -834,7 +851,7 @@ function collectMediaCandidates() {
     if (!existing.height && candidate.height) {
       existing.height = candidate.height;
     }
-    if (candidate.source === 'linked original') {
+    if (candidate.source === 'linked original' || candidate.source === '4chan original') {
       existing.source = candidate.source;
       existing.previewUrl = candidate.previewUrl;
     }
@@ -847,7 +864,47 @@ function collectMediaCandidates() {
       .filter(Boolean);
   }
 
+  function isPreviewForMediaLink(image) {
+    const parentLink = image.closest ? image.closest('a[href]') : null;
+    if (!parentLink) {
+      return false;
+    }
+
+    const imageUrl = normalizeUrl(image.currentSrc || image.src);
+    const linkedUrl = normalizeUrl(parentLink.href);
+    return Boolean(imageUrl && linkedUrl && imageUrl !== linkedUrl && isMediaUrl(linkedUrl));
+  }
+
+  Array.from(document.querySelectorAll('.file')).forEach((file) => {
+    const fileLink = file.querySelector('.fileText a[href], a.fileThumb[href]');
+    if (!fileLink) {
+      return;
+    }
+
+    const href = normalizeUrl(fileLink.href);
+    const type = typeFromExtension(extensionFromUrl(href));
+    if (!href || !type) {
+      return;
+    }
+
+    const thumbnail = file.querySelector('a.fileThumb img, img');
+    const dimensions = parseDimensions(file.querySelector('.fileText')?.textContent || '');
+
+    addCandidate({
+      url: href,
+      previewUrl: thumbnail ? thumbnail.currentSrc || thumbnail.src : href,
+      type,
+      source: '4chan original',
+      width: dimensions.width,
+      height: dimensions.height
+    });
+  });
+
   Array.from(document.images).forEach((image) => {
+    if (isPreviewForMediaLink(image)) {
+      return;
+    }
+
     const width = image.naturalWidth || image.width || null;
     const height = image.naturalHeight || image.height || null;
     addCandidate({
