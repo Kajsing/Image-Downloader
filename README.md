@@ -21,6 +21,8 @@ download only the selected media.
   endpoints that need the page session, then saves through Chrome downloads.
 - Supports `jpg`, `png`, `gif`, `webp`, `svg`, `webm`, and `mp4`.
 - Filters by media type, extension, same-origin, and minimum dimension.
+- Ignores known tiny images where either side is under 65px to avoid icons while
+  keeping normal thumbnails visible.
 - Selection helpers for visible results and likely wallpapers.
 - Per-tab state stored in `chrome.storage.local`.
 - Selected downloads are saved under `ImageDownloader/{host}_{date}/`.

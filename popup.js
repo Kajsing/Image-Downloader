@@ -4,6 +4,7 @@ const STORAGE_PREFIX = 'guided_media_';
 const EXTENSIONS = ['jpg', 'png', 'gif', 'webp', 'svg', 'webm', 'mp4'];
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
 const VIDEO_EXTENSIONS = new Set(['webm', 'mp4']);
+const MIN_VISIBLE_IMAGE_SIDE = 65;
 const DEFAULT_FILTERS = {
   type: 'all',
   extensions: EXTENSIONS,
@@ -391,6 +392,10 @@ function renderFooter() {
 
 function getFilteredCandidates() {
   return state.candidates.filter((candidate) => {
+    if (isTinyImageCandidate(candidate)) {
+      return false;
+    }
+
     if (state.filters.type !== 'all' && candidate.type !== state.filters.type) {
       return false;
     }
@@ -412,7 +417,15 @@ function getFilteredCandidates() {
 }
 
 function getSelectedCandidates() {
-  return state.candidates.filter((candidate) => candidate.selected);
+  return state.candidates.filter((candidate) => candidate.selected && !isTinyImageCandidate(candidate));
+}
+
+function isTinyImageCandidate(candidate) {
+  if (candidate.type !== 'image' || !candidate.width || !candidate.height) {
+    return false;
+  }
+
+  return Math.min(candidate.width, candidate.height) < MIN_VISIBLE_IMAGE_SIDE;
 }
 
 function resetFilters() {
@@ -633,7 +646,10 @@ function updateImageDimensions(candidateId, image) {
   candidate.width = image.naturalWidth;
   candidate.height = image.naturalHeight;
 
-  if (state.filters.minDimension > 0) {
+  if (isTinyImageCandidate(candidate)) {
+    candidate.selected = false;
+    renderResults();
+  } else if (state.filters.minDimension > 0) {
     renderResults();
   } else {
     const dimensionNode = refs.resultsList.querySelector(`[data-dimension-for="${candidateId}"]`);
