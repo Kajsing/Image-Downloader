@@ -488,21 +488,24 @@ async function downloadSelected() {
 
   if (pageDownloads.length) {
     try {
-      const results = await executeScriptWithArgs(state.tabId, downloadMediaFromPage, [
+      const results = await executeScriptWithArgs(state.tabId, fetchMediaFromPage, [
         pageDownloads.map((candidate) => ({
           url: candidate.url,
-          filename: candidate.filename || ''
+          filename: candidate.filename || '',
+          extension: candidate.extension,
+          type: candidate.type,
+          id: candidate.id
         }))
       ]);
       const result = results?.[0]?.result || {};
-      const started = Number(result.started) || 0;
+      const fetchedItems = Array.isArray(result.items) ? result.items : [];
       const failed = Array.isArray(result.failed) ? result.failed : [];
 
-      state.progress.done += started;
       state.progress.failed += failed.length;
       if (failed.length) {
-        state.progress.latestError = failed[0].error || 'A page download failed.';
+        state.progress.latestError = failed[0].error || 'An attachment fetch failed.';
       }
+      chromeDownloads.push(...fetchedItems);
     } catch (error) {
       state.progress.failed += pageDownloads.length;
       state.progress.latestError = error.message;
@@ -1125,30 +1128,47 @@ function collectMediaCandidates() {
   };
 }
 
-function downloadMediaFromPage(items) {
+async function fetchMediaFromPage(items) {
+  const fetchedItems = [];
   const failed = [];
-  let started = 0;
 
-  items.forEach((item, index) => {
+  for (const item of items) {
     try {
-      const anchor = document.createElement('a');
-      anchor.href = item.url;
-      anchor.rel = 'noopener';
-      anchor.style.display = 'none';
-      if (item.filename) {
-        anchor.download = item.filename;
+      const response = await fetch(item.url, {
+        credentials: 'include',
+        cache: 'no-store',
+        referrer: window.location.href
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      started += 1;
+
+      const blob = await response.blob();
+      const dataUrl = await blobToDataUrl(blob);
+      fetchedItems.push({
+        id: item.id,
+        url: dataUrl,
+        filename: item.filename,
+        extension: item.extension,
+        type: item.type
+      });
     } catch (error) {
       failed.push({
         url: item.url,
-        error: error.message || 'Could not start page download.'
+        error: error.message || 'Could not fetch attachment.'
       });
     }
-  });
+  }
 
-  return { started, failed };
+  return { items: fetchedItems, failed };
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read attachment data.'));
+    reader.readAsDataURL(blob);
+  });
 }
