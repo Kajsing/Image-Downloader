@@ -101,6 +101,9 @@ start with queued/completed-by-callback status if kept clear in the UI.
 
 ## Known Current Issues
 
-- `COUNTDOWN_SECONDS` is referenced in `popup.js` but not defined.
-- `icons/icon48.png` is 64x64 despite being used as the 48px icon.
 - Current UI downloads batches without previewing individual files.
+
+## Stabilization Notes
+
+- Milestone 1 defined the popup countdown behavior and fixed the 48px icon
+  asset mismatch.

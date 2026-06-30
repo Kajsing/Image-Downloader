@@ -25,7 +25,7 @@ previews, a "Select likely wallpapers" action, and selected-download progress.
 
 ## Milestone 1: Stabilize Existing Extension
 
-Status: pending
+Status: complete
 
 - Define or remove the broken countdown behavior.
 - Fix the 48px icon mismatch.

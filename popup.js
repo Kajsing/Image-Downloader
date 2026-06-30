@@ -3,6 +3,7 @@
 // Configuration for default batch sizes
 const DEFAULT_IMAGE_BATCH_SIZE = 50;
 const DEFAULT_WEBM_BATCH_SIZE = 5;
+const COUNTDOWN_SECONDS = 5;
 
 // Retrieve references to DOM elements
 const scanImagesBtn = document.getElementById('scanImagesBtn');
@@ -124,12 +125,14 @@ downloadImagesBtn.addEventListener('click', () => {
       // Get the current batch to download
       const batch = downloadState.data[currentImageBatchIndex];
 
+      downloadImagesBtn.disabled = true;
       updateStatus(`Downloading image batch ${currentImageBatchIndex + 1} of ${downloadState.data.length}...`);
 
       // Send a message to the background script to download the batch
       chrome.runtime.sendMessage({ action: 'downloadImages', images: batch }, (response) => {
         if (chrome.runtime.lastError) {
           updateStatus('Error: ' + chrome.runtime.lastError.message);
+          downloadImagesBtn.disabled = false;
           return;
         }
 
@@ -237,12 +240,14 @@ downloadWebmBtn.addEventListener('click', () => {
       // Get the current batch to download
       const batch = downloadState.data[currentWebmBatchIndex];
 
+      downloadWebmBtn.disabled = true;
       updateStatus(`Downloading WebM batch ${currentWebmBatchIndex + 1} of ${downloadState.data.length}...`);
 
       // Send a message to the background script to download the batch
       chrome.runtime.sendMessage({ action: 'downloadWebmFiles', webmFiles: batch }, (response) => {
         if (chrome.runtime.lastError) {
           updateStatus('Error: ' + chrome.runtime.lastError.message);
+          downloadWebmBtn.disabled = false;
           return;
         }
 
