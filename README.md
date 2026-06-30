@@ -17,6 +17,8 @@ download only the selected media.
 - Detects BBCode/forum attachment originals from `data-fullsize-url` and
   thumbnail links.
 - Preserves attachment filenames when forum metadata exposes them.
+- Uses same-page thumbnail snapshots and page-triggered downloads for attachment
+  endpoints that need the page session.
 - Supports `jpg`, `png`, `gif`, `webp`, `svg`, `webm`, and `mp4`.
 - Filters by media type, extension, same-origin, and minimum dimension.
 - Selection helpers for visible results and likely wallpapers.

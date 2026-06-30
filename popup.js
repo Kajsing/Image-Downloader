@@ -208,6 +208,7 @@ function normalizeCandidate(candidate, index) {
     extension,
     source: candidate.source || 'page',
     filename: candidate.filename || '',
+    downloadMode: candidate.downloadMode || 'chrome',
     pageHost: candidate.pageHost || state.pageHost,
     sameOrigin: Boolean(candidate.sameOrigin),
     width: toPositiveNumber(candidate.width),
@@ -482,6 +483,39 @@ async function downloadSelected() {
   persistState();
   render();
 
+  const pageDownloads = selected.filter((candidate) => candidate.downloadMode === 'page');
+  const chromeDownloads = selected.filter((candidate) => candidate.downloadMode !== 'page');
+
+  if (pageDownloads.length) {
+    try {
+      const results = await executeScriptWithArgs(state.tabId, downloadMediaFromPage, [
+        pageDownloads.map((candidate) => ({
+          url: candidate.url,
+          filename: candidate.filename || ''
+        }))
+      ]);
+      const result = results?.[0]?.result || {};
+      const started = Number(result.started) || 0;
+      const failed = Array.isArray(result.failed) ? result.failed : [];
+
+      state.progress.done += started;
+      state.progress.failed += failed.length;
+      if (failed.length) {
+        state.progress.latestError = failed[0].error || 'A page download failed.';
+      }
+    } catch (error) {
+      state.progress.failed += pageDownloads.length;
+      state.progress.latestError = error.message;
+    }
+  }
+
+  if (!chromeDownloads.length) {
+    finishDownloadSessionIfDone();
+    persistState();
+    render();
+    return;
+  }
+
   chrome.runtime.sendMessage(
     {
       action: 'downloadSelectedMedia',
@@ -491,7 +525,7 @@ async function downloadSelected() {
         title: state.pageTitle,
         url: state.pageUrl
       },
-      items: selected.map((candidate) => ({
+      items: chromeDownloads.map((candidate) => ({
         id: candidate.id,
         url: candidate.url,
         type: candidate.type,
@@ -516,6 +550,20 @@ async function downloadSelected() {
   );
 }
 
+function finishDownloadSessionIfDone() {
+  const finished = state.progress.done + state.progress.failed;
+  if (state.progress.queued && finished >= state.progress.queued) {
+    state.progress.active = false;
+    state.isDownloading = false;
+    setStatus(
+      state.progress.failed
+        ? `Finished with ${state.progress.failed} failed downloads.`
+        : 'All selected downloads completed.',
+      state.progress.failed ? 'Warning' : 'Ready'
+    );
+  }
+}
+
 function handleDownloadProgress(message) {
   if (!state.progress.sessionId || message.sessionId !== state.progress.sessionId) {
     return;
@@ -534,17 +582,7 @@ function handleDownloadProgress(message) {
     }
   }
 
-  const finished = state.progress.done + state.progress.failed;
-  if (state.progress.queued && finished >= state.progress.queued) {
-    state.progress.active = false;
-    state.isDownloading = false;
-    setStatus(
-      state.progress.failed
-        ? `Finished with ${state.progress.failed} failed downloads.`
-        : 'All selected downloads completed.',
-      state.progress.failed ? 'Warning' : 'Ready'
-    );
-  }
+  finishDownloadSessionIfDone();
 
   persistState();
   render();
@@ -705,6 +743,25 @@ function executeScript(tabId, func) {
   });
 }
 
+function executeScriptWithArgs(tabId, func, args) {
+  return new Promise((resolve, reject) => {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        function: func,
+        args
+      },
+      (results) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(results);
+      }
+    );
+  });
+}
+
 function storageGet(key) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get([key], (result) => {
@@ -803,6 +860,25 @@ function collectMediaCandidates() {
     return match ? match[1].trim() : '';
   }
 
+  function thumbnailDataUrl(image) {
+    if (!image || !image.naturalWidth || !image.naturalHeight) {
+      return '';
+    }
+
+    try {
+      const canvas = document.createElement('canvas');
+      const maxSide = 240;
+      const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } catch (error) {
+      return '';
+    }
+  }
+
   function typeFromExtension(extension) {
     if (imageExtensions.has(extension) || extension === 'jpg') {
       return 'image';
@@ -858,6 +934,7 @@ function collectMediaCandidates() {
       extension: extension || type,
       source: input.source || 'page',
       filename: input.filename || '',
+      downloadMode: input.downloadMode || 'chrome',
       pageHost: pageUrl.host,
       sameOrigin: sameOrigin(url),
       width: input.width || null,
@@ -924,7 +1001,7 @@ function collectMediaCandidates() {
   Array.from(document.querySelectorAll('a[href] img[data-fullsize-url], a[href].bbcode-attachment img, img[data-fullsize-url]')).forEach((image) => {
     const parentLink = image.closest ? image.closest('a[href]') : null;
     const fullsizeUrl = parentLink?.href || image.dataset?.fullsizeUrl;
-    const previewUrl = image.currentSrc || image.src || image.dataset?.thumbUrl;
+    const previewUrl = thumbnailDataUrl(image) || image.currentSrc || image.src || image.dataset?.thumbUrl;
     const extension = extensionFromUrl(fullsizeUrl) || extensionFromText(image.alt);
     const dimensions = parseDimensions(image.alt);
     const filename = filenameFromText(image.alt);
@@ -935,6 +1012,7 @@ function collectMediaCandidates() {
       type: 'image',
       extension,
       filename,
+      downloadMode: 'page',
       source: 'attachment original',
       width: dimensions.width,
       height: dimensions.height,
@@ -1045,4 +1123,32 @@ function collectMediaCandidates() {
     pageTitle: document.title || pageUrl.host,
     candidates: Array.from(candidatesByUrl.values())
   };
+}
+
+function downloadMediaFromPage(items) {
+  const failed = [];
+  let started = 0;
+
+  items.forEach((item, index) => {
+    try {
+      const anchor = document.createElement('a');
+      anchor.href = item.url;
+      anchor.rel = 'noopener';
+      anchor.style.display = 'none';
+      if (item.filename) {
+        anchor.download = item.filename;
+      }
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      started += 1;
+    } catch (error) {
+      failed.push({
+        url: item.url,
+        error: error.message || 'Could not start page download.'
+      });
+    }
+  });
+
+  return { started, failed };
 }

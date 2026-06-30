@@ -48,6 +48,8 @@ Responsibilities:
   fetch endpoint without a file extension.
 - Preserve attachment filenames from metadata when available so fetch endpoints
   still download with useful names.
+- Use same-page thumbnail snapshots and page-triggered downloads for attachment
+  endpoints that rely on page session or referer behavior.
 - Dedupe candidates by normalized URL.
 
 The scanner does not crawl unrelated pages in the MVP.
@@ -65,6 +67,7 @@ Each candidate uses this shape in popup state:
   extension: string,
   source: string,
   filename: string,
+  downloadMode: "chrome" | "page",
   pageHost: string,
   sameOrigin: boolean,
   width: number | null,
