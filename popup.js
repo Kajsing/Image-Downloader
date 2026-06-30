@@ -10,6 +10,9 @@ const DEFAULT_FILTERS = {
   sameOriginOnly: false,
   minDimension: 0
 };
+const DEFAULT_DOWNLOAD_SETTINGS = {
+  speedMode: 'normal'
+};
 
 const refs = {
   scanBtn: document.getElementById('scanBtn'),
@@ -22,6 +25,7 @@ const refs = {
   sameOriginOnly: document.getElementById('sameOriginOnly'),
   extensionFilters: document.getElementById('extensionFilters'),
   minDimension: document.getElementById('minDimension'),
+  downloadSpeed: document.getElementById('downloadSpeed'),
   resetFiltersBtn: document.getElementById('resetFiltersBtn'),
   selectLikelyBtn: document.getElementById('selectLikelyBtn'),
   selectAllBtn: document.getElementById('selectAllBtn'),
@@ -53,6 +57,7 @@ function createDefaultState() {
     pageTitle: '',
     candidates: [],
     filters: { ...DEFAULT_FILTERS, extensions: [...DEFAULT_FILTERS.extensions] },
+    downloadSettings: { ...DEFAULT_DOWNLOAD_SETTINGS },
     progress: {
       sessionId: null,
       queued: 0,
@@ -92,6 +97,11 @@ function wireEvents() {
   });
   refs.minDimension.addEventListener('change', () => {
     state.filters.minDimension = Number(refs.minDimension.value) || 0;
+    persistState();
+    render();
+  });
+  refs.downloadSpeed.addEventListener('change', () => {
+    state.downloadSettings.speedMode = normalizeDownloadSpeed(refs.downloadSpeed.value);
     persistState();
     render();
   });
@@ -252,6 +262,7 @@ function renderFilters() {
 
   refs.sameOriginOnly.checked = state.filters.sameOriginOnly;
   refs.minDimension.value = String(state.filters.minDimension);
+  refs.downloadSpeed.value = normalizeDownloadSpeed(state.downloadSettings.speedMode);
 
   refs.extensionFilters.querySelectorAll('[data-extension]').forEach((button) => {
     button.classList.toggle('is-active', state.filters.extensions.includes(button.dataset.extension));
@@ -528,6 +539,9 @@ async function downloadSelected() {
         title: state.pageTitle,
         url: state.pageUrl
       },
+      downloadSettings: {
+        speedMode: normalizeDownloadSpeed(state.downloadSettings.speedMode)
+      },
       items: chromeDownloads.map((candidate) => ({
         id: candidate.id,
         url: candidate.url,
@@ -574,6 +588,21 @@ function handleDownloadProgress(message) {
 
   if (message.status === 'complete') {
     state.progress.done += 1;
+  }
+
+  if (message.status === 'retry') {
+    const concurrencyText = message.concurrency
+      ? ` Retrying with ${message.concurrency} at a time.`
+      : ' Retrying slower.';
+    state.progress.latestError = `${message.error || 'Download stalled.'}${concurrencyText}`;
+    setStatus(state.progress.latestError, 'Downloading');
+  }
+
+  if (message.status === 'throttled') {
+    state.progress.latestError = message.concurrency
+      ? `Host is slow; throttled to ${message.concurrency} downloads at a time.`
+      : 'Host is slow; throttled downloads.';
+    setStatus(state.progress.latestError, 'Downloading');
   }
 
   if (message.status === 'failed') {
@@ -671,6 +700,11 @@ async function loadStateForTab(tabId) {
       ...(savedState.progress || {}),
       active: false
     },
+    downloadSettings: {
+      ...DEFAULT_DOWNLOAD_SETTINGS,
+      ...(savedState.downloadSettings || {}),
+      speedMode: normalizeDownloadSpeed(savedState.downloadSettings?.speedMode)
+    },
     isScanning: false,
     isDownloading: false
   };
@@ -694,6 +728,7 @@ function persistState() {
       pageTitle: state.pageTitle,
       candidates: state.candidates,
       filters: state.filters,
+      downloadSettings: state.downloadSettings,
       progress: state.progress,
       statusMessage: state.statusMessage,
       statusLabel: state.statusLabel
@@ -710,6 +745,10 @@ function queuePersistState() {
 
 function storageKey(tabId) {
   return `${STORAGE_PREFIX}${tabId}`;
+}
+
+function normalizeDownloadSpeed(speedMode) {
+  return ['conservative', 'normal', 'fast'].includes(speedMode) ? speedMode : DEFAULT_DOWNLOAD_SETTINGS.speedMode;
 }
 
 function getActiveTab() {

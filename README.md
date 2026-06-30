@@ -26,6 +26,8 @@ download only the selected media.
 - Selected downloads are saved under `ImageDownloader/{host}_{date}/`.
 - Download progress reports queued, completed, and failed items while the popup
   is open.
+- Adaptive download speed modes. Fast mode starts with more parallel downloads,
+  then retries slower when downloads time out or are interrupted.
 
 ## Install Locally
 
@@ -41,8 +43,9 @@ download only the selected media.
 2. Open the Image Downloader extension.
 3. Click Scan page.
 4. Use filters or Select likely to refine the result set.
-5. Select the media you want.
-6. Click Download selected.
+5. Pick a download speed if needed: Careful, Balanced, or Fast.
+6. Select the media you want.
+7. Click Download selected.
 
 ## Permissions
 

@@ -78,6 +78,8 @@ Status: complete
 - Generate safe folder and filenames.
 - Show queued, completed, failed counts, and latest error.
 - Preserve conflict handling with unique filenames.
+- Add adaptive download speed modes that reduce concurrency and retry when a
+  host stalls, times out, or interrupts downloads.
 
 Done when:
 

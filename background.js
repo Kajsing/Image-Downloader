@@ -1,6 +1,37 @@
 // background.js
 
 const activeDownloads = new Map();
+const downloadSessions = new Map();
+
+const SPEED_PROFILES = {
+  conservative: {
+    label: 'Careful',
+    initialConcurrency: 1,
+    minConcurrency: 1,
+    launchDelayMs: 750,
+    timeoutMs: 45000,
+    retryDelayMs: 3000,
+    maxRetries: 2
+  },
+  normal: {
+    label: 'Balanced',
+    initialConcurrency: 3,
+    minConcurrency: 1,
+    launchDelayMs: 350,
+    timeoutMs: 40000,
+    retryDelayMs: 2500,
+    maxRetries: 2
+  },
+  fast: {
+    label: 'Fast',
+    initialConcurrency: 6,
+    minConcurrency: 2,
+    launchDelayMs: 150,
+    timeoutMs: 30000,
+    retryDelayMs: 3000,
+    maxRetries: 2
+  }
+};
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action !== 'downloadSelectedMedia') {
@@ -16,8 +47,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
-  queueDownloads(sessionId, page, items);
-  sendResponse({ status: `${items.length} downloads queued in Chrome.` });
+  const profileName = normalizeSpeedMode(request.downloadSettings?.speedMode);
+  const session = queueDownloads(sessionId, page, items, profileName);
+  sendResponse({
+    status: `${items.length} downloads queued in Chrome (${session.profile.label}, up to ${session.concurrency} at a time).`
+  });
   return false;
 });
 
@@ -28,57 +62,226 @@ chrome.downloads.onChanged.addListener((delta) => {
 
   const download = activeDownloads.get(delta.id);
   if (delta.state.current === 'complete') {
+    clearTimeout(download.timeoutId);
+    activeDownloads.delete(delta.id);
+    markSessionDownloadFinished(download.sessionId, true);
     sendDownloadProgress({
       sessionId: download.sessionId,
       itemId: download.itemId,
       status: 'complete'
     });
-    activeDownloads.delete(delta.id);
   }
 
   if (delta.state.current === 'interrupted') {
-    sendDownloadProgress({
-      sessionId: download.sessionId,
-      itemId: download.itemId,
-      status: 'failed',
-      error: 'Download was interrupted.'
-    });
+    clearTimeout(download.timeoutId);
     activeDownloads.delete(delta.id);
+    markSessionDownloadFinished(download.sessionId, false);
+    retryOrFailDownload(download.sessionId, download.item, 'Download was interrupted.');
   }
 });
 
-function queueDownloads(sessionId, page, items) {
+function queueDownloads(sessionId, page, items, profileName = 'normal') {
+  const profile = SPEED_PROFILES[profileName] || SPEED_PROFILES.normal;
   const folder = buildDownloadFolder(page);
+  const session = {
+    id: sessionId,
+    page,
+    folder,
+    profileName,
+    profile,
+    concurrency: profile.initialConcurrency,
+    pending: items.map((item, index) => ({
+      ...item,
+      index,
+      attempts: 0
+    })),
+    activeCount: 0,
+    pumpTimer: null,
+    stopped: false
+  };
 
-  items.forEach((item, index) => {
-    const filename = buildFilename(item, index);
-    const downloadPath = `${folder}/${filename}`;
+  downloadSessions.set(sessionId, session);
+  pumpDownloads(session);
+  return session;
+}
 
-    chrome.downloads.download(
-      {
-        url: item.url,
-        filename: downloadPath,
-        conflictAction: 'uniquify',
-        saveAs: false
-      },
-      (downloadId) => {
-        if (chrome.runtime.lastError || !downloadId) {
-          sendDownloadProgress({
-            sessionId,
-            itemId: item.id,
-            status: 'failed',
-            error: chrome.runtime.lastError?.message || 'Chrome could not start the download.'
-          });
-          return;
-        }
+function pumpDownloads(session) {
+  if (!session || session.stopped) {
+    return;
+  }
 
-        activeDownloads.set(downloadId, {
-          sessionId,
-          itemId: item.id
-        });
-      }
-    );
+  if (!session.pending.length && session.activeCount === 0) {
+    cleanupSession(session.id);
+    return;
+  }
+
+  if (session.activeCount >= session.concurrency || !session.pending.length) {
+    return;
+  }
+
+  const item = session.pending.shift();
+  startDownload(session, item);
+
+  if (session.pending.length && session.activeCount < session.concurrency) {
+    schedulePump(session, session.profile.launchDelayMs);
+  }
+}
+
+function schedulePump(session, delayMs) {
+  if (!session || session.stopped || session.pumpTimer) {
+    return;
+  }
+
+  session.pumpTimer = setTimeout(() => {
+    session.pumpTimer = null;
+    pumpDownloads(session);
+  }, delayMs);
+}
+
+function startDownload(session, item) {
+  item.attempts += 1;
+  session.activeCount += 1;
+
+  const filename = buildFilename(item, item.index);
+  const downloadPath = `${session.folder}/${filename}`;
+
+  sendDownloadProgress({
+    sessionId: session.id,
+    itemId: item.id,
+    status: 'started',
+    attempt: item.attempts,
+    concurrency: session.concurrency
   });
+
+  chrome.downloads.download(
+    {
+      url: item.url,
+      filename: downloadPath,
+      conflictAction: 'uniquify',
+      saveAs: false
+    },
+    (downloadId) => {
+      if (chrome.runtime.lastError || !downloadId) {
+        markSessionDownloadFinished(session.id, false);
+        retryOrFailDownload(
+          session.id,
+          item,
+          chrome.runtime.lastError?.message || 'Chrome could not start the download.'
+        );
+        return;
+      }
+
+      const timeoutId = setTimeout(() => {
+        handleDownloadTimeout(downloadId);
+      }, session.profile.timeoutMs);
+
+      activeDownloads.set(downloadId, {
+        sessionId: session.id,
+        itemId: item.id,
+        item,
+        timeoutId
+      });
+    }
+  );
+}
+
+function handleDownloadTimeout(downloadId) {
+  const download = activeDownloads.get(downloadId);
+  if (!download) {
+    return;
+  }
+
+  activeDownloads.delete(downloadId);
+  markSessionDownloadFinished(download.sessionId, false);
+
+  chrome.downloads.cancel(downloadId, () => {
+    void chrome.runtime.lastError;
+  });
+
+  retryOrFailDownload(download.sessionId, download.item, 'Download timed out.');
+}
+
+function retryOrFailDownload(sessionId, item, error) {
+  const session = downloadSessions.get(sessionId);
+  if (!session || session.stopped) {
+    sendDownloadProgress({
+      sessionId,
+      itemId: item.id,
+      status: 'failed',
+      error
+    });
+    return;
+  }
+
+  throttleSession(session, error);
+
+  if (item.attempts <= session.profile.maxRetries) {
+    session.pending.unshift(item);
+    sendDownloadProgress({
+      sessionId,
+      itemId: item.id,
+      status: 'retry',
+      attempt: item.attempts + 1,
+      concurrency: session.concurrency,
+      error
+    });
+    schedulePump(session, session.profile.retryDelayMs);
+    return;
+  }
+
+  sendDownloadProgress({
+    sessionId,
+    itemId: item.id,
+    status: 'failed',
+    error
+  });
+  schedulePump(session, session.profile.launchDelayMs);
+}
+
+function throttleSession(session, error) {
+  const nextConcurrency = Math.max(
+    session.profile.minConcurrency,
+    session.profileName === 'fast' ? 2 : Math.floor(session.concurrency / 2)
+  );
+
+  if (nextConcurrency >= session.concurrency) {
+    return;
+  }
+
+  session.concurrency = nextConcurrency;
+  sendDownloadProgress({
+    sessionId: session.id,
+    status: 'throttled',
+    concurrency: session.concurrency,
+    error
+  });
+}
+
+function markSessionDownloadFinished(sessionId, shouldSchedule = true) {
+  const session = downloadSessions.get(sessionId);
+  if (!session) {
+    return;
+  }
+
+  session.activeCount = Math.max(0, session.activeCount - 1);
+  if (shouldSchedule) {
+    schedulePump(session, session.profile.launchDelayMs);
+  }
+}
+
+function cleanupSession(sessionId) {
+  const session = downloadSessions.get(sessionId);
+  if (!session) {
+    return;
+  }
+
+  session.stopped = true;
+  clearTimeout(session.pumpTimer);
+  downloadSessions.delete(sessionId);
+}
+
+function normalizeSpeedMode(speedMode) {
+  return Object.prototype.hasOwnProperty.call(SPEED_PROFILES, speedMode) ? speedMode : 'normal';
 }
 
 function buildDownloadFolder(page) {

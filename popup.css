@@ -203,6 +203,10 @@ h2 {
   gap: 10px;
 }
 
+.filter-row {
+  flex-wrap: wrap;
+}
+
 .toggle-row {
   color: #344055;
 }
@@ -237,11 +241,13 @@ h2 {
 
 .select-label {
   display: grid;
+  flex: 1 1 132px;
   gap: 4px;
   color: var(--muted);
 }
 
 .select-label select {
+  width: 100%;
   min-width: 132px;
   height: 34px;
   border: 1px solid var(--border);
