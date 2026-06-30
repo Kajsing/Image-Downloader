@@ -4,12 +4,11 @@ const STORAGE_PREFIX = 'guided_media_';
 const EXTENSIONS = ['jpg', 'png', 'gif', 'webp', 'svg', 'webm', 'mp4'];
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
 const VIDEO_EXTENSIONS = new Set(['webm', 'mp4']);
-const MIN_VISIBLE_IMAGE_SIDE = 65;
 const DEFAULT_FILTERS = {
   type: 'all',
   extensions: EXTENSIONS,
   sameOriginOnly: false,
-  minDimension: 0
+  minDimension: 65
 };
 const DEFAULT_DOWNLOAD_SETTINGS = {
   speedMode: 'normal'
@@ -98,6 +97,7 @@ function wireEvents() {
   });
   refs.minDimension.addEventListener('change', () => {
     state.filters.minDimension = Number(refs.minDimension.value) || 0;
+    deselectCandidatesBelowMinimum();
     persistState();
     render();
   });
@@ -392,10 +392,6 @@ function renderFooter() {
 
 function getFilteredCandidates() {
   return state.candidates.filter((candidate) => {
-    if (isTinyImageCandidate(candidate)) {
-      return false;
-    }
-
     if (state.filters.type !== 'all' && candidate.type !== state.filters.type) {
       return false;
     }
@@ -417,19 +413,12 @@ function getFilteredCandidates() {
 }
 
 function getSelectedCandidates() {
-  return state.candidates.filter((candidate) => candidate.selected && !isTinyImageCandidate(candidate));
-}
-
-function isTinyImageCandidate(candidate) {
-  if (candidate.type !== 'image' || !candidate.width || !candidate.height) {
-    return false;
-  }
-
-  return Math.min(candidate.width, candidate.height) < MIN_VISIBLE_IMAGE_SIDE;
+  return state.candidates.filter((candidate) => candidate.selected);
 }
 
 function resetFilters() {
   state.filters = { ...DEFAULT_FILTERS, extensions: [...DEFAULT_FILTERS.extensions] };
+  deselectCandidatesBelowMinimum();
   persistState();
   render();
 }
@@ -646,10 +635,9 @@ function updateImageDimensions(candidateId, image) {
   candidate.width = image.naturalWidth;
   candidate.height = image.naturalHeight;
 
-  if (isTinyImageCandidate(candidate)) {
-    candidate.selected = false;
-    renderResults();
-  } else if (state.filters.minDimension > 0) {
+  deselectCandidateBelowMinimum(candidate);
+
+  if (state.filters.minDimension > 0) {
     renderResults();
   } else {
     const dimensionNode = refs.resultsList.querySelector(`[data-dimension-for="${candidateId}"]`);
@@ -724,12 +712,31 @@ async function loadStateForTab(tabId) {
     isScanning: false,
     isDownloading: false
   };
+  deselectCandidatesBelowMinimum();
   setStatus(
     state.candidates.length
       ? `Restored ${state.candidates.length} media candidates.`
       : 'Scan the active tab to collect media candidates.',
     'Ready'
   );
+}
+
+function deselectCandidatesBelowMinimum() {
+  state.candidates.forEach((candidate) => {
+    deselectCandidateBelowMinimum(candidate);
+  });
+}
+
+function deselectCandidateBelowMinimum(candidate) {
+  if (
+    candidate.selected
+    && state.filters.minDimension > 0
+    && candidate.width
+    && candidate.height
+    && Math.min(candidate.width, candidate.height) < state.filters.minDimension
+  ) {
+    candidate.selected = false;
+  }
 }
 
 function persistState() {

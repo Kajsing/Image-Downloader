@@ -20,9 +20,8 @@ The popup is the command surface:
 - Starts active-tab page scans.
 - Renders scan summary counts for all media, images, and videos.
 - Renders filters for media type, extension, same-origin, and minimum size.
-- Applies a default tiny-image noise filter for known image dimensions under
-  65px on either side, which removes most icons without hiding ordinary
-  thumbnails.
+- Defaults the minimum-size filter to 65px, which removes most icons without
+  hiding ordinary thumbnails. Users can switch back to any size when needed.
 - Renders a compact selectable preview grid.
 - Provides selection helpers for visible results and likely wallpapers.
 - Starts selected downloads.
