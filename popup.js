@@ -409,7 +409,7 @@ function passesCurrentFilters(candidate) {
     return false;
   }
 
-  if (!state.filters.extensions.includes(candidate.extension)) {
+  if (!passesExtensionFilter(candidate)) {
     return false;
   }
 
@@ -422,6 +422,28 @@ function passesCurrentFilters(candidate) {
   }
 
   return true;
+}
+
+function passesExtensionFilter(candidate) {
+  if (state.filters.extensions.includes(candidate.extension)) {
+    return true;
+  }
+
+  if (candidate.type === 'image' && !IMAGE_EXTENSIONS.has(candidate.extension)) {
+    return allMediaTypeExtensionsSelected(IMAGE_EXTENSIONS);
+  }
+
+  if (candidate.type === 'video' && !VIDEO_EXTENSIONS.has(candidate.extension)) {
+    return allMediaTypeExtensionsSelected(VIDEO_EXTENSIONS);
+  }
+
+  return false;
+}
+
+function allMediaTypeExtensionsSelected(extensionSet) {
+  return EXTENSIONS
+    .filter((extension) => extensionSet.has(extension))
+    .every((extension) => state.filters.extensions.includes(extension));
 }
 
 function resetFilters() {
@@ -1408,6 +1430,21 @@ async function fetchMediaFromPage(items, options = {}) {
     return '';
   }
 
+  function filenameFromContentDisposition(header) {
+    const value = String(header || '');
+    const encodedMatch = value.match(/filename\*=UTF-8''([^;]+)/i);
+    if (encodedMatch) {
+      try {
+        return decodeURIComponent(encodedMatch[1].trim().replace(/^["']|["']$/g, ''));
+      } catch (error) {
+        return encodedMatch[1].trim().replace(/^["']|["']$/g, '');
+      }
+    }
+
+    const match = value.match(/filename=([^;]+)/i);
+    return match ? match[1].trim().replace(/^["']|["']$/g, '') : '';
+  }
+
   async function fetchItem(item) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
@@ -1428,10 +1465,11 @@ async function fetchMediaFromPage(items, options = {}) {
 
       const blob = await response.blob();
       const dataUrl = await blobToDataUrl(blob);
+      const filename = filenameFromContentDisposition(response.headers.get('Content-Disposition')) || item.filename;
       fetchedItems.push({
         id: item.id,
         url: dataUrl,
-        filename: item.filename,
+        filename,
         extension: extensionFromMimeType(blob.type) || item.extension,
         type: item.type
       });

@@ -51,8 +51,8 @@ Responsibilities:
   fetch endpoint without a file extension.
 - Treat SMF-style `dlattach` image attachment blocks as original media records,
   using the thumb image as preview and nearby metadata for dimensions.
-- Preserve attachment filenames from metadata when available so fetch endpoints
-  still download with useful names.
+- Preserve attachment filenames from metadata or `Content-Disposition` headers
+  when available so fetch endpoints still download with useful names.
 - Use same-page thumbnail snapshots and timeout-protected page-session fetch
   batches for attachment endpoints that rely on page session or referer
   behavior, then append each prepared batch to Chrome downloads with
