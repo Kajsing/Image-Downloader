@@ -14,8 +14,8 @@ download only the selected media.
 - Finds media from `img`, `srcset`, direct media links, `video`, and `source`
   elements.
 - Prioritizes 4chan-style original file links over their thumbnail previews.
-- Detects BBCode/forum attachment originals from `data-fullsize-url` and
-  thumbnail links.
+- Detects BBCode/forum attachment originals from `data-fullsize-url`, thumbnail
+  links, and SMF-style `dlattach` image attachment blocks.
 - Preserves attachment filenames when forum metadata exposes them.
 - Uses same-page thumbnail snapshots and timeout-protected page-session fetch
   batches for attachment endpoints that need the page session, then saves

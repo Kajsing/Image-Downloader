@@ -49,6 +49,8 @@ Responsibilities:
 - Treat BBCode/forum attachment thumbnails with `data-fullsize-url` or
   attachment links as original media records, even when the original URL is a
   fetch endpoint without a file extension.
+- Treat SMF-style `dlattach` image attachment blocks as original media records,
+  using the thumb image as preview and nearby metadata for dimensions.
 - Preserve attachment filenames from metadata when available so fetch endpoints
   still download with useful names.
 - Use same-page thumbnail snapshots and timeout-protected page-session fetch

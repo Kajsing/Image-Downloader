@@ -1041,6 +1041,11 @@ function collectMediaCandidates() {
     return match ? match[1].trim() : '';
   }
 
+  function attachmentIdFromUrl(url) {
+    const match = String(url || '').match(/(?:[?;&]|^)attach=(\d+)/i);
+    return match ? match[1] : '';
+  }
+
   function thumbnailDataUrl(image) {
     if (!image || !image.naturalWidth || !image.naturalHeight) {
       return '';
@@ -1072,6 +1077,17 @@ function collectMediaCandidates() {
 
   function isMediaUrl(url) {
     return Boolean(typeFromExtension(extensionFromUrl(url)));
+  }
+
+  function isAttachmentUrl(url) {
+    const normalized = normalizeUrl(url);
+    if (!normalized) {
+      return false;
+    }
+
+    return /(?:[?;&]|^)action=dlattach\b/i.test(normalized)
+      || /(?:[?;&]|^)attach=\d+/i.test(normalized)
+      || /\/filedata\/fetch\b/i.test(new URL(normalized).pathname);
   }
 
   function parseDimensions(text) {
@@ -1141,8 +1157,12 @@ function collectMediaCandidates() {
       || candidate.source === '4chan original'
       || candidate.source === 'attachment original'
     ) {
+      const candidateHasPreview = candidate.previewUrl && candidate.previewUrl !== candidate.url;
+      const existingHasPreview = existing.previewUrl && existing.previewUrl !== existing.url;
       existing.source = candidate.source;
-      existing.previewUrl = candidate.previewUrl;
+      if (candidateHasPreview || !existingHasPreview) {
+        existing.previewUrl = candidate.previewUrl;
+      }
     }
   }
 
@@ -1169,6 +1189,7 @@ function collectMediaCandidates() {
       image.dataset?.fullsizeUrl
       || image.dataset?.size === 'thumb'
       || parentLink.classList?.contains('bbcode-attachment')
+      || isAttachmentUrl(linkedUrl)
     );
 
     return Boolean(
@@ -1198,6 +1219,45 @@ function collectMediaCandidates() {
       width: dimensions.width,
       height: dimensions.height,
       allowUnknownExtension: true
+    });
+  });
+
+  Array.from(document.querySelectorAll('.attachments, [class*="attachments"]')).forEach((container) => {
+    Array.from(container.querySelectorAll('a[href]')).forEach((anchor) => {
+      const href = normalizeUrl(anchor.href);
+      if (!href || !isAttachmentUrl(href) || /(?:[?;&]|;)thumb\b/i.test(href)) {
+        return;
+      }
+
+      const attachmentId = attachmentIdFromUrl(href);
+      const image = anchor.querySelector('img')
+        || (attachmentId ? container.querySelector(`img[src*="attach=${attachmentId}"]`) : null)
+        || container.querySelector('img.atc_img, img');
+      const isImageAttachment = Boolean(image) || /(?:[?;&]|;)image\b/i.test(href);
+      if (!isImageAttachment) {
+        return;
+      }
+
+      const attachmentText = container.textContent || '';
+      const dimensions = parseDimensions(attachmentText);
+      const extension = extensionFromUrl(href)
+        || extensionFromText(attachmentText)
+        || extensionFromText(image?.alt);
+      const filename = filenameFromText(attachmentText)
+        || (attachmentId ? `attachment_${attachmentId}` : '');
+
+      addCandidate({
+        url: href,
+        previewUrl: image ? thumbnailDataUrl(image) || image.currentSrc || image.src : href,
+        type: 'image',
+        extension,
+        filename,
+        downloadMode: 'page',
+        source: 'attachment original',
+        width: dimensions.width,
+        height: dimensions.height,
+        allowUnknownExtension: true
+      });
     });
   });
 
@@ -1322,6 +1382,32 @@ async function fetchMediaFromPage(items, options = {}) {
     });
   }
 
+  function extensionFromMimeType(mimeType) {
+    const normalized = String(mimeType || '').split(';')[0].trim().toLowerCase();
+    if (normalized === 'image/jpeg') {
+      return 'jpg';
+    }
+    if (normalized === 'image/png') {
+      return 'png';
+    }
+    if (normalized === 'image/gif') {
+      return 'gif';
+    }
+    if (normalized === 'image/webp') {
+      return 'webp';
+    }
+    if (normalized === 'image/svg+xml') {
+      return 'svg';
+    }
+    if (normalized === 'video/webm') {
+      return 'webm';
+    }
+    if (normalized === 'video/mp4') {
+      return 'mp4';
+    }
+    return '';
+  }
+
   async function fetchItem(item) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
@@ -1346,7 +1432,7 @@ async function fetchMediaFromPage(items, options = {}) {
         id: item.id,
         url: dataUrl,
         filename: item.filename,
-        extension: item.extension,
+        extension: extensionFromMimeType(blob.type) || item.extension,
         type: item.type
       });
     } catch (error) {
