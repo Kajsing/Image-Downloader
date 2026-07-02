@@ -48,6 +48,8 @@ Responsibilities:
   image records and download them through the page-session path.
 - Use visible-tab screenshot crops as popup previews for pximg images when the
   remote host refuses extension-popup image loads.
+- Keep original-media dimensions separate from thumbnail and snapshot preview
+  dimensions so popup previews do not overwrite source metadata.
 - Treat 4chan `.file` blocks as original media records, using `.fileThumb` only
   as a preview and parsing dimensions from `.fileText`.
 - Treat BBCode/forum attachment thumbnails with `data-fullsize-url` or

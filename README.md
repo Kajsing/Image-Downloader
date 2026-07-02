@@ -18,6 +18,8 @@ download only the selected media.
   `img-original` links.
 - Uses visible-tab snapshot crops for pximg previews that cannot be loaded
   directly inside the extension popup.
+- Keeps thumbnail and snapshot preview sizes from overwriting original media
+  dimensions.
 - Detects BBCode/forum attachment originals from `data-fullsize-url`, thumbnail
   links, and SMF-style `dlattach` image attachment blocks.
 - Preserves attachment filenames when forum metadata or download headers expose

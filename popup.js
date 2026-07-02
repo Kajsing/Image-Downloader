@@ -736,6 +736,10 @@ function updateImageDimensions(candidateId, image) {
     return;
   }
 
+  if (!shouldLearnDimensionsFromPreview(candidate)) {
+    return;
+  }
+
   if (candidate.width === image.naturalWidth && candidate.height === image.naturalHeight) {
     return;
   }
@@ -756,6 +760,24 @@ function updateImageDimensions(candidateId, image) {
 
   queuePersistState();
   renderFooter();
+}
+
+function shouldLearnDimensionsFromPreview(candidate) {
+  if (candidate.snapshotRect) {
+    return false;
+  }
+
+  const previewUrl = candidate.previewUrl || '';
+  const mediaUrl = candidate.url || '';
+  const previewIsSeparateMedia = previewUrl && mediaUrl && previewUrl !== mediaUrl;
+  const sourceUsesPreviewForOriginal = [
+    'attachment original',
+    '4chan original',
+    'linked original',
+    'pixiv original'
+  ].includes(candidate.source);
+
+  return !(previewIsSeparateMedia && sourceUsesPreviewForOriginal);
 }
 
 function markPreviewWarning(candidateId, warning) {
@@ -1263,6 +1285,11 @@ function collectMediaCandidates() {
     };
   }
 
+  function dimensionAttribute(element, name) {
+    const value = Number(element?.getAttribute?.(name));
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+  }
+
   function sameOrigin(url) {
     try {
       return new URL(url).host === pageUrl.host;
@@ -1397,8 +1424,8 @@ function collectMediaCandidates() {
     }
 
     const extension = extensionFromUrl(originalUrl) || extensionFromUrl(previewUrl) || 'jpg';
-    const width = image.naturalWidth || image.width || null;
-    const height = image.naturalHeight || image.height || null;
+    const width = dimensionAttribute(image, 'width') || image.naturalWidth || image.width || null;
+    const height = dimensionAttribute(image, 'height') || image.naturalHeight || image.height || null;
 
     addCandidate({
       url: originalUrl,
