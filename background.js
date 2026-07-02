@@ -3,7 +3,7 @@
 const activeDownloads = new Map();
 const downloadSessions = new Map();
 const PXIMG_REFERER_RULE_ID = 1001;
-const PXIMG_REFERER = 'https://www.pixiv.net/';
+const PXIMG_FALLBACK_REFERER = 'https://www.pixiv.net/';
 
 const SPEED_PROFILES = {
   conservative: {
@@ -162,7 +162,7 @@ function startDownload(session, item) {
   session.activeCount += 1;
 
   if (isPximgUrl(item.url)) {
-    ensurePximgRefererRule(() => {
+    ensurePximgRefererRule(pximgRefererForSession(session), () => {
       startDownloadRequest(session, item);
     });
     return;
@@ -221,7 +221,7 @@ function startDownloadRequest(session, item) {
   );
 }
 
-function ensurePximgRefererRule(callback) {
+function ensurePximgRefererRule(referer, callback) {
   if (!chrome.declarativeNetRequest?.updateSessionRules) {
     callback();
     return;
@@ -238,14 +238,14 @@ function ensurePximgRefererRule(callback) {
             type: 'modifyHeaders',
             requestHeaders: [
               {
-                header: 'referer',
+                header: 'Referer',
                 operation: 'set',
-                value: PXIMG_REFERER
+                value: referer
               }
             ]
           },
           condition: {
-            urlFilter: '||i.pximg.net/img-original/',
+            regexFilter: '^https://i\\.pximg\\.net/img-original/',
             resourceTypes: ['main_frame', 'sub_frame', 'image', 'media', 'xmlhttprequest', 'other']
           }
         }
@@ -256,6 +256,19 @@ function ensurePximgRefererRule(callback) {
       callback();
     }
   );
+}
+
+function pximgRefererForSession(session) {
+  try {
+    const url = new URL(session.page?.url || '');
+    if (url.host === 'www.pixiv.net') {
+      return url.href;
+    }
+  } catch (error) {
+    // Fall through to the generic Pixiv referer.
+  }
+
+  return PXIMG_FALLBACK_REFERER;
 }
 
 function normalizeDownloadHeaders(headers) {
