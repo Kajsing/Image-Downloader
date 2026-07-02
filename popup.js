@@ -1268,7 +1268,7 @@ function collectMediaCandidates() {
 
     try {
       const parsed = new URL(normalized);
-      const match = parsed.pathname.match(/^\/img-master\/img\/(.+?)\/([^/]+)_master\d+\.(jpg|jpeg|png|gif|webp)$/i);
+      const match = parsed.pathname.match(/^\/(?:c\/[^/]+\/)?img-master\/img\/(.+?)\/([^/]+)_(?:master|square)\d+\.(jpg|jpeg|png|gif|webp)$/i);
       if (!match) {
         return '';
       }

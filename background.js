@@ -246,7 +246,7 @@ function ensurePximgRefererRule(callback) {
           },
           condition: {
             urlFilter: '||i.pximg.net/img-original/',
-            resourceTypes: ['image', 'media', 'xmlhttprequest', 'other']
+            resourceTypes: ['main_frame', 'sub_frame', 'image', 'media', 'xmlhttprequest', 'other']
           }
         }
       ]

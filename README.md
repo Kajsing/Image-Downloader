@@ -14,8 +14,8 @@ download only the selected media.
 - Finds media from `img`, `srcset`, direct media links, `video`, and `source`
   elements.
 - Prioritizes 4chan-style original file links over their thumbnail previews.
-- Detects Pixiv/pximg original images from `img-master` previews and
-  `img-original` links.
+- Detects Pixiv/pximg original images from `img-master`, cached `square1200`
+  thumbnails, and `img-original` links.
 - Downloads pximg originals through Chrome while a narrow request rule supplies
   the Pixiv referer expected by `i.pximg.net`.
 - Uses visible-tab snapshot crops for pximg previews that cannot be loaded
