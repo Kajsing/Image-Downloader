@@ -46,6 +46,8 @@ Responsibilities:
   anchor.
 - Treat Pixiv/pximg `img-master` previews and `img-original` links as original
   image records and download them through the page-session path.
+- Use visible-tab screenshot crops as popup previews for pximg images when the
+  remote host refuses extension-popup image loads.
 - Treat 4chan `.file` blocks as original media records, using `.fileThumb` only
   as a preview and parsing dimensions from `.fileText`.
 - Treat BBCode/forum attachment thumbnails with `data-fullsize-url` or

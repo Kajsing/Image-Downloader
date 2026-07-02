@@ -198,6 +198,7 @@ async function scanPage() {
     state.pageHost = scanResult.pageHost || state.pageHost;
     state.pageTitle = scanResult.pageTitle || tab.title || '';
     state.candidates = candidates.map(normalizeCandidate);
+    await hydrateSnapshotPreviews(tab.windowId);
     state.isScanning = false;
 
     setStatus(
@@ -230,6 +231,7 @@ function normalizeCandidate(candidate, index) {
     sameOrigin: Boolean(candidate.sameOrigin),
     width: toPositiveNumber(candidate.width),
     height: toPositiveNumber(candidate.height),
+    snapshotRect: candidate.snapshotRect || null,
     selected: true,
     warning: ''
   };
@@ -766,6 +768,80 @@ function markPreviewWarning(candidateId, warning) {
   }
 }
 
+async function hydrateSnapshotPreviews(windowId) {
+  const candidates = state.candidates.filter((candidate) => hasUsableSnapshotRect(candidate.snapshotRect));
+  if (!candidates.length) {
+    return;
+  }
+
+  try {
+    const screenshotUrl = await captureVisibleTab(windowId);
+    const screenshot = await loadImage(screenshotUrl);
+
+    candidates.forEach((candidate) => {
+      const previewUrl = cropSnapshotPreview(screenshot, candidate.snapshotRect);
+      if (previewUrl) {
+        candidate.previewUrl = previewUrl;
+      }
+    });
+  } catch (error) {
+    candidates.forEach((candidate) => {
+      candidate.warning = candidate.warning || 'Snapshot preview unavailable';
+    });
+  }
+}
+
+function hasUsableSnapshotRect(rect) {
+  return rect
+    && rect.width > 8
+    && rect.height > 8
+    && rect.viewportWidth > 0
+    && rect.viewportHeight > 0;
+}
+
+function captureVisibleTab(windowId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 82 }, (dataUrl) => {
+      if (chrome.runtime.lastError || !dataUrl) {
+        reject(new Error(chrome.runtime.lastError?.message || 'Could not capture tab preview.'));
+        return;
+      }
+      resolve(dataUrl);
+    });
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Could not load captured preview.'));
+    image.src = src;
+  });
+}
+
+function cropSnapshotPreview(screenshot, rect) {
+  const scaleX = screenshot.naturalWidth / rect.viewportWidth;
+  const scaleY = screenshot.naturalHeight / rect.viewportHeight;
+  const sourceX = Math.max(0, Math.round(rect.left * scaleX));
+  const sourceY = Math.max(0, Math.round(rect.top * scaleY));
+  const sourceWidth = Math.min(screenshot.naturalWidth - sourceX, Math.round(rect.width * scaleX));
+  const sourceHeight = Math.min(screenshot.naturalHeight - sourceY, Math.round(rect.height * scaleY));
+
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return '';
+  }
+
+  const maxSide = 260;
+  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+  const context = canvas.getContext('2d');
+  context.drawImage(screenshot, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.84);
+}
+
 function formatDimensions(candidate) {
   if (candidate.width && candidate.height) {
     return `${candidate.width} x ${candidate.height}`;
@@ -1095,6 +1171,33 @@ function collectMediaCandidates() {
     }
   }
 
+  function snapshotRectFromElement(element) {
+    if (!element || !element.getBoundingClientRect) {
+      return null;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const left = Math.max(0, rect.left);
+    const top = Math.max(0, rect.top);
+    const right = Math.min(window.innerWidth, rect.right);
+    const bottom = Math.min(window.innerHeight, rect.bottom);
+    const width = right - left;
+    const height = bottom - top;
+
+    if (width <= 8 || height <= 8) {
+      return null;
+    }
+
+    return {
+      left,
+      top,
+      width,
+      height,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight
+    };
+  }
+
   function typeFromExtension(extension) {
     if (imageExtensions.has(extension) || extension === 'jpg') {
       return 'image';
@@ -1193,7 +1296,8 @@ function collectMediaCandidates() {
       pageHost: pageUrl.host,
       sameOrigin: sameOrigin(url),
       width: input.width || null,
-      height: input.height || null
+      height: input.height || null,
+      snapshotRect: input.snapshotRect || null
     };
 
     if (!existing) {
@@ -1207,6 +1311,9 @@ function collectMediaCandidates() {
     if (!existing.height && candidate.height) {
       existing.height = candidate.height;
     }
+    if (!existing.snapshotRect && candidate.snapshotRect) {
+      existing.snapshotRect = candidate.snapshotRect;
+    }
     if (!existing.filename && candidate.filename) {
       existing.filename = candidate.filename;
     }
@@ -1216,6 +1323,10 @@ function collectMediaCandidates() {
       || candidate.source === 'pixiv original'
       || candidate.source === 'attachment original'
     ) {
+      if (sourcePriority(candidate.source) < sourcePriority(existing.source)) {
+        return;
+      }
+
       const candidateHasPreview = candidate.previewUrl && candidate.previewUrl !== candidate.url;
       const existingHasPreview = existing.previewUrl && existing.previewUrl !== existing.url;
       existing.source = candidate.source;
@@ -1223,6 +1334,19 @@ function collectMediaCandidates() {
         existing.previewUrl = candidate.previewUrl;
       }
     }
+  }
+
+  function sourcePriority(source) {
+    if (source === 'attachment original' || source === '4chan original' || source === 'pixiv original') {
+      return 4;
+    }
+    if (source === 'linked original') {
+      return 3;
+    }
+    if (source === 'direct link') {
+      return 2;
+    }
+    return 1;
   }
 
   function parseSrcset(srcset) {
@@ -1285,7 +1409,8 @@ function collectMediaCandidates() {
       downloadMode: 'page',
       source: 'pixiv original',
       width,
-      height
+      height,
+      snapshotRect: snapshotRectFromElement(image)
     });
   });
 
