@@ -299,6 +299,7 @@ h2 {
 .selection-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 0 2px;
   color: var(--muted);
@@ -306,6 +307,10 @@ h2 {
 
 .selection-actions span {
   margin-left: auto;
+}
+
+.selection-actions span + span {
+  margin-left: 0;
 }
 
 .link-action {

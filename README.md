@@ -35,6 +35,8 @@ download only the selected media.
 - Filters by media type, extension, same-origin, and minimum dimension.
 - Defaults the minimum-size filter to 65px to avoid most icons while keeping
   normal thumbnails visible.
+- Supports a local ignore list for repeatedly unwanted media, keyed by stable
+  media fingerprints so ignored items stay hidden on future scans.
 - Selection helpers for visible results and likely wallpapers.
 - Per-tab state stored in `chrome.storage.local`, restored only when the current
   page URL still matches the saved scan.

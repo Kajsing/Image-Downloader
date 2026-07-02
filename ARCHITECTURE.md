@@ -87,6 +87,8 @@ Each candidate uses this shape in popup state:
   sameOrigin: boolean,
   width: number | null,
   height: number | null,
+  ignored: boolean,
+  ignoreFingerprints: string[],
   selected: boolean,
   warning: string
 }
@@ -104,6 +106,12 @@ State includes:
 - Current selection.
 - Download progress.
 - Last status message.
+
+A separate global ignore list is stored under `guided_media_ignore_list`.
+Ignored media is matched by stable fingerprints derived from canonical media URL
+and, when available, filename plus dimensions. The MVP does not hash every file's
+contents during scan because that would require fetching many large or
+cross-origin files before the user chooses what to keep.
 
 ## Background Service Worker
 

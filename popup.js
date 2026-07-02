@@ -1,6 +1,8 @@
 // popup.js
 
 const STORAGE_PREFIX = 'guided_media_';
+const IGNORE_LIST_KEY = `${STORAGE_PREFIX}ignore_list`;
+const MAX_IGNORE_ENTRIES = 1000;
 const EXTENSIONS = ['jpg', 'png', 'gif', 'webp', 'svg', 'webm', 'mp4'];
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
 const VIDEO_EXTENSIONS = new Set(['webm', 'mp4']);
@@ -36,8 +38,11 @@ const refs = {
   selectLikelyBtn: document.getElementById('selectLikelyBtn'),
   selectAllBtn: document.getElementById('selectAllBtn'),
   selectNoneBtn: document.getElementById('selectNoneBtn'),
+  ignoreSelectedBtn: document.getElementById('ignoreSelectedBtn'),
+  clearIgnoresBtn: document.getElementById('clearIgnoresBtn'),
   clearSelectionBtn: document.getElementById('clearSelectionBtn'),
   visibleCount: document.getElementById('visibleCount'),
+  ignoredCount: document.getElementById('ignoredCount'),
   emptyState: document.getElementById('emptyState'),
   resultsList: document.getElementById('resultsList'),
   selectedCount: document.getElementById('selectedCount'),
@@ -62,6 +67,7 @@ function createDefaultState() {
     pageHost: 'Active tab',
     pageTitle: '',
     candidates: [],
+    ignoreList: [],
     filters: { ...DEFAULT_FILTERS, extensions: [...DEFAULT_FILTERS.extensions] },
     downloadSettings: { ...DEFAULT_DOWNLOAD_SETTINGS },
     progress: {
@@ -86,7 +92,9 @@ async function init() {
   try {
     const tab = await getActiveTab();
     setTabInfo(tab);
+    await loadIgnoreList();
     await loadStateForTab(tab.id);
+    applyIgnoreListToCandidates();
     render();
   } catch (error) {
     setStatus(`Error: ${error.message}`, 'Error');
@@ -116,6 +124,8 @@ function wireEvents() {
   refs.selectLikelyBtn.addEventListener('click', selectLikelyWallpapers);
   refs.selectAllBtn.addEventListener('click', () => setVisibleSelection(true));
   refs.selectNoneBtn.addEventListener('click', () => setVisibleSelection(false));
+  refs.ignoreSelectedBtn.addEventListener('click', ignoreSelectedMedia);
+  refs.clearIgnoresBtn.addEventListener('click', clearIgnoredMedia);
   refs.clearSelectionBtn.addEventListener('click', clearSelection);
   refs.downloadBtn.addEventListener('click', downloadSelected);
 
@@ -198,12 +208,13 @@ async function scanPage() {
     state.pageHost = scanResult.pageHost || state.pageHost;
     state.pageTitle = scanResult.pageTitle || tab.title || '';
     state.candidates = candidates.map(normalizeCandidate);
+    const ignoredCount = applyIgnoreListToCandidates();
     await hydrateSnapshotPreviews(tab.windowId);
     state.isScanning = false;
 
     setStatus(
       state.candidates.length
-        ? `Found ${state.candidates.length} media candidates.`
+        ? `Found ${activeCandidateCount()} media candidates${ignoredCount ? `; hid ${ignoredCount} ignored.` : '.'}`
         : 'No supported media found on this page.',
       'Ready'
     );
@@ -218,7 +229,7 @@ async function scanPage() {
 
 function normalizeCandidate(candidate, index) {
   const extension = normalizeExtension(candidate.extension);
-  return {
+  const normalizedCandidate = {
     id: `media_${index}_${hashString(candidate.url || String(index))}`,
     url: candidate.url,
     previewUrl: candidate.previewUrl || candidate.url,
@@ -234,8 +245,18 @@ function normalizeCandidate(candidate, index) {
     height: toPositiveNumber(candidate.height),
     snapshotRect: candidate.snapshotRect || null,
     selected: true,
+    ignored: false,
+    ignoreFingerprints: [],
     warning: ''
   };
+
+  normalizedCandidate.ignoreFingerprints = buildCandidateFingerprints(normalizedCandidate);
+  normalizedCandidate.ignored = isCandidateIgnored(normalizedCandidate);
+  if (normalizedCandidate.ignored) {
+    normalizedCandidate.selected = false;
+  }
+
+  return normalizedCandidate;
 }
 
 function render() {
@@ -258,9 +279,10 @@ function renderHeader() {
 }
 
 function renderSummary() {
-  const imageCount = state.candidates.filter((candidate) => candidate.type === 'image').length;
-  const videoCount = state.candidates.filter((candidate) => candidate.type === 'video').length;
-  refs.totalCount.textContent = String(state.candidates.length);
+  const activeCandidates = getActiveCandidates();
+  const imageCount = activeCandidates.filter((candidate) => candidate.type === 'image').length;
+  const videoCount = activeCandidates.filter((candidate) => candidate.type === 'video').length;
+  refs.totalCount.textContent = String(activeCandidates.length);
   refs.imageCount.textContent = String(imageCount);
   refs.videoCount.textContent = String(videoCount);
 }
@@ -284,9 +306,11 @@ function renderResults() {
   refs.resultsList.textContent = '';
 
   refs.emptyState.hidden = visibleCandidates.length > 0;
-  refs.emptyState.textContent = state.candidates.length
+  refs.emptyState.textContent = getActiveCandidates().length
     ? 'No media match the current filters.'
-    : 'No media scanned yet.';
+    : state.candidates.length
+      ? 'All scanned media are ignored.'
+      : 'No media scanned yet.';
 
   visibleCandidates.forEach((candidate) => {
     refs.resultsList.appendChild(createMediaCard(candidate));
@@ -385,6 +409,9 @@ function renderFooter() {
   const selected = getSelectedCandidates();
   refs.selectedCount.textContent = `${selected.length} selected`;
   refs.downloadBtn.disabled = selected.length === 0 || state.progress.active;
+  refs.ignoreSelectedBtn.disabled = selected.length === 0 || state.progress.active;
+  refs.clearIgnoresBtn.disabled = state.ignoreList.length === 0 || state.progress.active;
+  refs.ignoredCount.textContent = `${state.ignoreList.length} ignored`;
 
   const queued = state.progress.queued || 0;
   const finished = state.progress.done + state.progress.failed;
@@ -403,11 +430,19 @@ function getFilteredCandidates() {
   return state.candidates.filter((candidate) => passesCurrentFilters(candidate));
 }
 
+function getActiveCandidates() {
+  return state.candidates.filter((candidate) => !candidate.ignored);
+}
+
 function getSelectedCandidates() {
   return state.candidates.filter((candidate) => candidate.selected && passesCurrentFilters(candidate));
 }
 
 function passesCurrentFilters(candidate) {
+  if (candidate.ignored) {
+    return false;
+  }
+
   if (state.filters.type !== 'all' && candidate.type !== state.filters.type) {
     return false;
   }
@@ -469,6 +504,55 @@ function clearSelection() {
     candidate.selected = false;
   });
   persistState();
+  render();
+}
+
+async function ignoreSelectedMedia() {
+  const selected = getSelectedCandidates();
+  if (!selected.length) {
+    return;
+  }
+
+  const entriesByFingerprint = new Map(
+    state.ignoreList.map((entry) => [entry.fingerprint, entry])
+  );
+  let ignoredCount = 0;
+
+  selected.forEach((candidate) => {
+    candidate.ignoreFingerprints = buildCandidateFingerprints(candidate);
+    candidate.ignoreFingerprints.forEach((fingerprint) => {
+      entriesByFingerprint.set(fingerprint, buildIgnoreEntry(candidate, fingerprint));
+    });
+    candidate.ignored = true;
+    candidate.selected = false;
+    ignoredCount += 1;
+  });
+
+  state.ignoreList = Array.from(entriesByFingerprint.values()).slice(-MAX_IGNORE_ENTRIES);
+  setStatus(`Ignored ${ignoredCount} selected media item${ignoredCount === 1 ? '' : 's'}.`, 'Ready');
+  await persistIgnoreList();
+  await persistState();
+  render();
+}
+
+async function clearIgnoredMedia() {
+  if (!state.ignoreList.length) {
+    return;
+  }
+
+  const restoredCount = state.candidates.filter((candidate) => candidate.ignored).length;
+  state.ignoreList = [];
+  state.candidates.forEach((candidate) => {
+    candidate.ignored = false;
+  });
+  setStatus(
+    restoredCount
+      ? `Cleared ignore list; restored ${restoredCount} current media items.`
+      : 'Cleared ignore list.',
+    'Ready'
+  );
+  await persistIgnoreList();
+  await persistState();
   render();
 }
 
@@ -957,6 +1041,7 @@ async function loadStateForTab(tabId) {
   const key = storageKey(tabId);
   const result = await storageGet(key);
   const savedState = result[key];
+  const ignoreList = state.ignoreList;
 
   if (!savedState || !Array.isArray(savedState.candidates)) {
     return;
@@ -974,6 +1059,7 @@ async function loadStateForTab(tabId) {
     ...createDefaultState(),
     ...savedState,
     tabId,
+    ignoreList,
     filters: {
       ...DEFAULT_FILTERS,
       ...(savedState.filters || {}),
@@ -1019,6 +1105,143 @@ function deselectCandidateBelowMinimum(candidate) {
   ) {
     candidate.selected = false;
   }
+}
+
+function applyIgnoreListToCandidates() {
+  let ignoredCount = 0;
+  state.candidates.forEach((candidate) => {
+    candidate.ignoreFingerprints = buildCandidateFingerprints(candidate);
+    candidate.ignored = isCandidateIgnored(candidate);
+    if (candidate.ignored) {
+      candidate.selected = false;
+      ignoredCount += 1;
+    }
+  });
+  return ignoredCount;
+}
+
+function isCandidateIgnored(candidate) {
+  const ignoredFingerprints = new Set(state.ignoreList.map((entry) => entry.fingerprint));
+  return buildCandidateFingerprints(candidate).some((fingerprint) => ignoredFingerprints.has(fingerprint));
+}
+
+function buildCandidateFingerprints(candidate) {
+  const materials = [];
+  const canonicalUrl = canonicalMediaUrl(candidate.url);
+  if (canonicalUrl) {
+    materials.push(`url:${canonicalUrl}`);
+  }
+
+  const filename = normalizeFingerprintPart(candidate.filename || filenameFromUrl(candidate.url));
+  if (filename && candidate.extension && candidate.width && candidate.height) {
+    materials.push(`file:${normalizeExtension(candidate.extension)}:${candidate.width}x${candidate.height}:${filename}`);
+  }
+
+  return Array.from(new Set(materials.map((material) => `fp_${hashString(material)}`)));
+}
+
+function buildIgnoreEntry(candidate, fingerprint) {
+  return {
+    fingerprint,
+    label: candidate.filename || filenameFromUrl(candidate.url) || candidate.source || candidate.type || 'media',
+    url: candidate.url,
+    type: candidate.type,
+    extension: candidate.extension,
+    ignoredAt: new Date().toISOString()
+  };
+}
+
+function canonicalMediaUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    parsed.protocol = parsed.protocol.toLowerCase();
+    parsed.hostname = parsed.hostname.toLowerCase();
+
+    if (parsed.hostname === 'i.pximg.net') {
+      parsed.search = '';
+      return parsed.href;
+    }
+
+    const disposableParams = new Set([
+      'cache',
+      'cb',
+      'd',
+      'download',
+      'hash',
+      'height',
+      'nc',
+      'rnd',
+      'size',
+      'thumb',
+      'thumbnail',
+      'type',
+      'width'
+    ]);
+    const keptParams = new URLSearchParams();
+    Array.from(parsed.searchParams.keys()).sort().forEach((key) => {
+      if (!disposableParams.has(key.toLowerCase())) {
+        parsed.searchParams.getAll(key).forEach((value) => {
+          keptParams.append(key, value);
+        });
+      }
+    });
+    parsed.search = keptParams.toString();
+    return parsed.href;
+  } catch (error) {
+    return String(url || '').trim();
+  }
+}
+
+function normalizeFingerprintPart(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function filenameFromUrl(url) {
+  try {
+    const pathname = new URL(url).pathname;
+    return decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '');
+  } catch (error) {
+    return '';
+  }
+}
+
+function activeCandidateCount() {
+  return getActiveCandidates().length;
+}
+
+async function loadIgnoreList() {
+  const result = await storageGet(IGNORE_LIST_KEY);
+  const entries = Array.isArray(result[IGNORE_LIST_KEY]) ? result[IGNORE_LIST_KEY] : [];
+  state.ignoreList = entries
+    .map(normalizeIgnoreEntry)
+    .filter(Boolean)
+    .slice(-MAX_IGNORE_ENTRIES);
+}
+
+function normalizeIgnoreEntry(entry) {
+  if (typeof entry === 'string') {
+    return { fingerprint: entry, label: 'media', ignoredAt: '' };
+  }
+
+  if (!entry || !entry.fingerprint) {
+    return null;
+  }
+
+  return {
+    fingerprint: String(entry.fingerprint),
+    label: String(entry.label || 'media'),
+    url: String(entry.url || ''),
+    type: String(entry.type || ''),
+    extension: String(entry.extension || ''),
+    ignoredAt: String(entry.ignoredAt || '')
+  };
+}
+
+function persistIgnoreList() {
+  return storageSet({
+    [IGNORE_LIST_KEY]: state.ignoreList
+  });
 }
 
 function persistState() {
