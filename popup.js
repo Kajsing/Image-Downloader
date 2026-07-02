@@ -1063,6 +1063,14 @@ function collectMediaCandidates() {
     return match ? match[1].trim() : '';
   }
 
+  function decodeFilename(value) {
+    try {
+      return decodeURIComponent(String(value || ''));
+    } catch (error) {
+      return String(value || '');
+    }
+  }
+
   function attachmentIdFromUrl(url) {
     const match = String(url || '').match(/(?:[?;&]|^)attach=(\d+)/i);
     return match ? match[1] : '';
@@ -1099,6 +1107,34 @@ function collectMediaCandidates() {
 
   function isMediaUrl(url) {
     return Boolean(typeFromExtension(extensionFromUrl(url)));
+  }
+
+  function isPixivMediaUrl(url) {
+    try {
+      return new URL(url).host === 'i.pximg.net';
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function pixivOriginalFromPreview(url) {
+    const normalized = normalizeUrl(url);
+    if (!normalized || !isPixivMediaUrl(normalized)) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(normalized);
+      const match = parsed.pathname.match(/^\/img-master\/img\/(.+?)\/([^/]+)_master\d+\.(jpg|jpeg|png|gif|webp)$/i);
+      if (!match) {
+        return '';
+      }
+
+      const extension = match[3].toLowerCase() === 'jpeg' ? 'jpg' : match[3].toLowerCase();
+      return `${parsed.origin}/img-original/img/${match[1]}/${match[2]}.${extension}`;
+    } catch (error) {
+      return '';
+    }
   }
 
   function isAttachmentUrl(url) {
@@ -1177,6 +1213,7 @@ function collectMediaCandidates() {
     if (
       candidate.source === 'linked original'
       || candidate.source === '4chan original'
+      || candidate.source === 'pixiv original'
       || candidate.source === 'attachment original'
     ) {
       const candidateHasPreview = candidate.previewUrl && candidate.previewUrl !== candidate.url;
@@ -1212,6 +1249,7 @@ function collectMediaCandidates() {
       || image.dataset?.size === 'thumb'
       || parentLink.classList?.contains('bbcode-attachment')
       || isAttachmentUrl(linkedUrl)
+      || isPixivMediaUrl(linkedUrl)
     );
 
     return Boolean(
@@ -1221,6 +1259,35 @@ function collectMediaCandidates() {
       && (isMediaUrl(linkedUrl) || isAttachmentPreview)
     );
   }
+
+  Array.from(document.querySelectorAll('a[href] img, img[src*="i.pximg.net/img-master/"]')).forEach((image) => {
+    const parentLink = image.closest ? image.closest('a[href]') : null;
+    const linkedUrl = normalizeUrl(parentLink?.href);
+    const previewUrl = normalizeUrl(image.currentSrc || image.src);
+    const originalUrl = isPixivMediaUrl(linkedUrl)
+      ? linkedUrl
+      : pixivOriginalFromPreview(previewUrl);
+
+    if (!originalUrl || !isPixivMediaUrl(originalUrl)) {
+      return;
+    }
+
+    const extension = extensionFromUrl(originalUrl) || extensionFromUrl(previewUrl) || 'jpg';
+    const width = image.naturalWidth || image.width || null;
+    const height = image.naturalHeight || image.height || null;
+
+    addCandidate({
+      url: originalUrl,
+      previewUrl: previewUrl || originalUrl,
+      type: 'image',
+      extension,
+      filename: decodeFilename(originalUrl.split('/').pop() || ''),
+      downloadMode: 'page',
+      source: 'pixiv original',
+      width,
+      height
+    });
+  });
 
   Array.from(document.querySelectorAll('a[href] img[data-fullsize-url], a[href].bbcode-attachment img, img[data-fullsize-url]')).forEach((image) => {
     const parentLink = image.closest ? image.closest('a[href]') : null;

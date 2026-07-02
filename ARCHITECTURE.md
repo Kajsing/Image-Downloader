@@ -44,6 +44,8 @@ Responsibilities:
   `linked original`, `direct link`, `video element`, or `video source`.
 - Prefer original media links when a thumbnail is wrapped in a direct media
   anchor.
+- Treat Pixiv/pximg `img-master` previews and `img-original` links as original
+  image records and download them through the page-session path.
 - Treat 4chan `.file` blocks as original media records, using `.fileThumb` only
   as a preview and parsing dimensions from `.fileText`.
 - Treat BBCode/forum attachment thumbnails with `data-fullsize-url` or

@@ -14,6 +14,8 @@ download only the selected media.
 - Finds media from `img`, `srcset`, direct media links, `video`, and `source`
   elements.
 - Prioritizes 4chan-style original file links over their thumbnail previews.
+- Detects Pixiv/pximg original images from `img-master` previews and
+  `img-original` links.
 - Detects BBCode/forum attachment originals from `data-fullsize-url`, thumbnail
   links, and SMF-style `dlattach` image attachment blocks.
 - Preserves attachment filenames when forum metadata or download headers expose
