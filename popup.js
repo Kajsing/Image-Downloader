@@ -320,7 +320,7 @@ function createMediaCard(candidate) {
     image.alt = '';
     image.loading = 'lazy';
     image.addEventListener('load', () => updateImageDimensions(candidate.id, image));
-    image.addEventListener('error', () => markPreviewWarning(candidate.id, 'Preview failed'));
+    image.addEventListener('error', () => handleImagePreviewError(candidate.id, image));
     thumbWrap.appendChild(image);
   } else {
     const placeholder = document.createElement('div');
@@ -798,6 +798,66 @@ function markPreviewWarning(candidateId, warning) {
     renderFooter();
     queuePersistState();
   }
+}
+
+async function handleImagePreviewError(candidateId, image) {
+  const candidate = state.candidates.find((item) => item.id === candidateId);
+  if (!candidate) {
+    return;
+  }
+
+  if (candidate.previewFetchPending) {
+    return;
+  }
+
+  if (!isPximgUrl(candidate.previewUrl)) {
+    markPreviewWarning(candidateId, 'Preview failed');
+    return;
+  }
+
+  candidate.previewFetchPending = true;
+
+  try {
+    const dataUrl = await fetchPximgPreviewDataUrl(candidate.previewUrl);
+    candidate.previewUrl = dataUrl;
+    candidate.warning = '';
+    image.src = dataUrl;
+  } catch (error) {
+    markPreviewWarning(candidateId, error.message || 'Preview failed');
+  } finally {
+    delete candidate.previewFetchPending;
+  }
+
+  queuePersistState();
+  renderResults();
+  renderFooter();
+}
+
+function fetchPximgPreviewDataUrl(url) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        action: 'fetchPximgPreview',
+        url,
+        page: {
+          url: state.pageUrl
+        }
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        if (response?.dataUrl) {
+          resolve(response.dataUrl);
+          return;
+        }
+
+        reject(new Error(response?.error || 'Preview failed'));
+      }
+    );
+  });
 }
 
 async function hydrateSnapshotPreviews(windowId) {

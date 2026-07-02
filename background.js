@@ -4,6 +4,7 @@ const activeDownloads = new Map();
 const downloadSessions = new Map();
 const PXIMG_REFERER_RULE_ID = 1001;
 const PXIMG_FALLBACK_REFERER = 'https://www.pixiv.net/';
+const PXIMG_PREVIEW_TIMEOUT_MS = 15000;
 
 const SPEED_PROFILES = {
   conservative: {
@@ -36,6 +37,11 @@ const SPEED_PROFILES = {
 };
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'fetchPximgPreview') {
+    handlePximgPreviewRequest(request, sendResponse);
+    return true;
+  }
+
   if (request.action !== 'downloadSelectedMedia') {
     return false;
   }
@@ -56,6 +62,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   });
   return false;
 });
+
+function handlePximgPreviewRequest(request, sendResponse) {
+  if (!isPximgUrl(request.url)) {
+    sendResponse({ error: 'Preview URL is not a pximg image.' });
+    return;
+  }
+
+  ensurePximgRefererRule(pximgRefererForPage(request.page), async () => {
+    try {
+      sendResponse({
+        dataUrl: await fetchPximgDataUrl(request.url, PXIMG_PREVIEW_TIMEOUT_MS)
+      });
+    } catch (error) {
+      sendResponse({
+        error: error.message || 'Could not fetch Pixiv preview.'
+      });
+    }
+  });
+}
 
 chrome.downloads.onChanged.addListener((delta) => {
   if (!delta.state || !activeDownloads.has(delta.id)) {
@@ -331,7 +356,7 @@ function ensurePximgRefererRule(referer, callback) {
             ]
           },
           condition: {
-            regexFilter: '^https://i\\.pximg\\.net/img-original/',
+            regexFilter: '^https://i\\.pximg\\.net/',
             resourceTypes: ['main_frame', 'sub_frame', 'image', 'media', 'xmlhttprequest', 'other']
           }
         }
@@ -345,8 +370,12 @@ function ensurePximgRefererRule(referer, callback) {
 }
 
 function pximgRefererForSession(session) {
+  return pximgRefererForPage(session.page);
+}
+
+function pximgRefererForPage(page) {
   try {
-    const url = new URL(session.page?.url || '');
+    const url = new URL(page?.url || '');
     if (url.host === 'www.pixiv.net') {
       return url.href;
     }

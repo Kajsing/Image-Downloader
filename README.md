@@ -20,7 +20,8 @@ download only the selected media.
   that supplies the current Pixiv artwork page as the referer expected by
   `i.pximg.net`, then saves the fetched image bytes through Chrome downloads.
 - Uses visible-tab snapshot crops for pximg previews that cannot be loaded
-  directly inside the extension popup.
+  directly inside the extension popup, with an on-demand background fetch
+  fallback for offscreen pximg thumbnails.
 - Keeps thumbnail and snapshot preview sizes from overwriting original media
   dimensions.
 - Detects BBCode/forum attachment originals from `data-fullsize-url`, thumbnail
