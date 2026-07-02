@@ -162,30 +162,14 @@ function startDownload(session, item) {
   session.activeCount += 1;
 
   if (isPximgUrl(item.url)) {
-    ensurePximgRefererRule(pximgRefererForSession(session), () => {
-      startDownloadRequest(session, item);
-    });
+    startPximgDownload(session, item);
     return;
   }
 
   startDownloadRequest(session, item);
 }
 
-function startDownloadRequest(session, item) {
-  const filename = buildFilename(item, item.index);
-  const downloadPath = `${session.folder}/${filename}`;
-  const downloadOptions = {
-    url: item.url,
-    filename: downloadPath,
-    conflictAction: 'uniquify',
-    saveAs: false
-  };
-  const headers = normalizeDownloadHeaders(item.headers);
-
-  if (headers.length) {
-    downloadOptions.headers = headers;
-  }
-
+function startPximgDownload(session, item) {
   sendDownloadProgress({
     sessionId: session.id,
     itemId: item.id,
@@ -193,6 +177,46 @@ function startDownloadRequest(session, item) {
     attempt: item.attempts,
     concurrency: session.concurrency
   });
+
+  ensurePximgRefererRule(pximgRefererForSession(session), async () => {
+    try {
+      const dataUrl = await fetchPximgDataUrl(item.url, session.profile.timeoutMs);
+      startDownloadRequest(session, item, {
+        url: dataUrl,
+        headers: [],
+        sendStarted: false
+      });
+    } catch (error) {
+      markSessionDownloadFinished(session.id, false);
+      retryOrFailDownload(session.id, item, error.message || 'Could not fetch Pixiv image.');
+    }
+  });
+}
+
+function startDownloadRequest(session, item, options = {}) {
+  const filename = buildFilename(item, item.index);
+  const downloadPath = `${session.folder}/${filename}`;
+  const downloadOptions = {
+    url: options.url || item.url,
+    filename: downloadPath,
+    conflictAction: 'uniquify',
+    saveAs: false
+  };
+  const headers = normalizeDownloadHeaders(options.headers ?? item.headers);
+
+  if (headers.length) {
+    downloadOptions.headers = headers;
+  }
+
+  if (options.sendStarted !== false) {
+    sendDownloadProgress({
+      sessionId: session.id,
+      itemId: item.id,
+      status: 'started',
+      attempt: item.attempts,
+      concurrency: session.concurrency
+    });
+  }
 
   chrome.downloads.download(
     downloadOptions,
@@ -219,6 +243,68 @@ function startDownloadRequest(session, item) {
       });
     }
   );
+}
+
+async function fetchPximgDataUrl(url, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, Math.max(5000, Number(timeoutMs) || 30000));
+
+  try {
+    const response = await fetch(url, {
+      cache: 'no-store',
+      credentials: 'omit',
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Pixiv fetch HTTP ${response.status}`);
+    }
+
+    const contentType = String(response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+    if (contentType && !contentType.startsWith('image/')) {
+      throw new Error(`Pixiv returned ${contentType} instead of an image.`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const mimeType = contentType || mimeTypeFromUrl(url) || 'application/octet-stream';
+    return `data:${mimeType};base64,${arrayBufferToBase64(arrayBuffer)}`;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('Pixiv fetch timed out.');
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+function mimeTypeFromUrl(url) {
+  const extension = extensionFromUrl(url);
+  const mimeTypes = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml'
+  };
+
+  return mimeTypes[extension] || '';
 }
 
 function ensurePximgRefererRule(referer, callback) {
