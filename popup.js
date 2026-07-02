@@ -651,12 +651,7 @@ function toDownloadItem(candidate) {
 
 function downloadHeadersForCandidate(candidate) {
   if (isPximgUrl(candidate.url)) {
-    return [
-      {
-        name: 'Referer',
-        value: 'https://www.pixiv.net/'
-      }
-    ];
+    return [];
   }
 
   return candidate.headers || [];
@@ -1461,12 +1456,6 @@ function collectMediaCandidates() {
       extension,
       filename: decodeFilename(originalUrl.split('/').pop() || ''),
       downloadMode: 'chrome',
-      headers: [
-        {
-          name: 'Referer',
-          value: 'https://www.pixiv.net/'
-        }
-      ],
       source: 'pixiv original',
       width,
       height,

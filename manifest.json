@@ -5,9 +5,13 @@
     "description": "Guided media collector for scanning, filtering, selecting, and downloading images and videos from the active page.",
     "permissions": [
       "activeTab",
+      "declarativeNetRequestWithHostAccess",
       "downloads",
       "scripting",
       "storage"
+    ],
+    "host_permissions": [
+      "https://i.pximg.net/*"
     ],
     "action": {
       "default_popup": "popup.html",

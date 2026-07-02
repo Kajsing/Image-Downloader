@@ -2,6 +2,8 @@
 
 const activeDownloads = new Map();
 const downloadSessions = new Map();
+const PXIMG_REFERER_RULE_ID = 1001;
+const PXIMG_REFERER = 'https://www.pixiv.net/';
 
 const SPEED_PROFILES = {
   conservative: {
@@ -159,6 +161,17 @@ function startDownload(session, item) {
   item.attempts += 1;
   session.activeCount += 1;
 
+  if (isPximgUrl(item.url)) {
+    ensurePximgRefererRule(() => {
+      startDownloadRequest(session, item);
+    });
+    return;
+  }
+
+  startDownloadRequest(session, item);
+}
+
+function startDownloadRequest(session, item) {
   const filename = buildFilename(item, item.index);
   const downloadPath = `${session.folder}/${filename}`;
   const downloadOptions = {
@@ -208,6 +221,43 @@ function startDownload(session, item) {
   );
 }
 
+function ensurePximgRefererRule(callback) {
+  if (!chrome.declarativeNetRequest?.updateSessionRules) {
+    callback();
+    return;
+  }
+
+  chrome.declarativeNetRequest.updateSessionRules(
+    {
+      removeRuleIds: [PXIMG_REFERER_RULE_ID],
+      addRules: [
+        {
+          id: PXIMG_REFERER_RULE_ID,
+          priority: 1,
+          action: {
+            type: 'modifyHeaders',
+            requestHeaders: [
+              {
+                header: 'referer',
+                operation: 'set',
+                value: PXIMG_REFERER
+              }
+            ]
+          },
+          condition: {
+            urlFilter: '||i.pximg.net/img-original/',
+            resourceTypes: ['image', 'media', 'xmlhttprequest', 'other']
+          }
+        }
+      ]
+    },
+    () => {
+      void chrome.runtime.lastError;
+      callback();
+    }
+  );
+}
+
 function normalizeDownloadHeaders(headers) {
   if (!Array.isArray(headers)) {
     return [];
@@ -215,10 +265,23 @@ function normalizeDownloadHeaders(headers) {
 
   return headers
     .filter((header) => header && header.name && typeof header.value === 'string')
+    .filter((header) => isSafeDownloadHeaderName(header.name))
     .map((header) => ({
       name: String(header.name),
       value: header.value
     }));
+}
+
+function isSafeDownloadHeaderName(name) {
+  return !['referer', 'referrer', 'user-agent', 'cookie', 'origin'].includes(String(name).toLowerCase());
+}
+
+function isPximgUrl(url) {
+  try {
+    return new URL(url).host === 'i.pximg.net';
+  } catch (error) {
+    return false;
+  }
 }
 
 function handleDownloadTimeout(downloadId) {

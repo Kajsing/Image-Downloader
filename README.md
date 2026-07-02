@@ -16,8 +16,8 @@ download only the selected media.
 - Prioritizes 4chan-style original file links over their thumbnail previews.
 - Detects Pixiv/pximg original images from `img-master` previews and
   `img-original` links.
-- Downloads pximg originals through Chrome with a Pixiv referer header instead
-  of page-session fetches.
+- Downloads pximg originals through Chrome while a narrow request rule supplies
+  the Pixiv referer expected by `i.pximg.net`.
 - Uses visible-tab snapshot crops for pximg previews that cannot be loaded
   directly inside the extension popup.
 - Keeps thumbnail and snapshot preview sizes from overwriting original media
@@ -63,8 +63,12 @@ download only the selected media.
 ## Permissions
 
 - `activeTab`: access the current tab after user interaction.
+- `declarativeNetRequestWithHostAccess`: set the Pixiv referer only for
+  `i.pximg.net` original image downloads.
 - `scripting`: run the scanner in the active page.
 - `downloads`: save selected media through Chrome downloads.
+- `host_permissions` for `https://i.pximg.net/*`: allow the narrow Pixiv
+  referer rule to apply to pximg originals.
 - `storage`: restore scan results and selection state per tab.
 
 The extension has no backend, no accounts, no telemetry, and no cloud storage.

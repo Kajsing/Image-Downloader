@@ -45,8 +45,9 @@ Responsibilities:
 - Prefer original media links when a thumbnail is wrapped in a direct media
   anchor.
 - Treat Pixiv/pximg `img-master` previews and `img-original` links as original
-  image records and download them through Chrome downloads with a Pixiv referer
-  header.
+  image records and download them through Chrome downloads while a narrow
+  `declarativeNetRequest` rule supplies the Pixiv referer expected by
+  `i.pximg.net`.
 - Use visible-tab screenshot crops as popup previews for pximg images when the
   remote host refuses extension-popup image loads.
 - Keep original-media dimensions separate from thumbnail and snapshot preview
