@@ -16,6 +16,8 @@ download only the selected media.
 - Prioritizes 4chan-style original file links over their thumbnail previews.
 - Detects Pixiv/pximg original images from `img-master` previews and
   `img-original` links.
+- Downloads pximg originals through Chrome with a Pixiv referer header instead
+  of page-session fetches.
 - Uses visible-tab snapshot crops for pximg previews that cannot be loaded
   directly inside the extension popup.
 - Keeps thumbnail and snapshot preview sizes from overwriting original media

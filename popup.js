@@ -227,6 +227,7 @@ function normalizeCandidate(candidate, index) {
     source: candidate.source || 'page',
     filename: candidate.filename || '',
     downloadMode: candidate.downloadMode || 'chrome',
+    headers: Array.isArray(candidate.headers) ? candidate.headers : [],
     pageHost: candidate.pageHost || state.pageHost,
     sameOrigin: Boolean(candidate.sameOrigin),
     width: toPositiveNumber(candidate.width),
@@ -528,8 +529,8 @@ async function downloadSelected() {
   persistState();
   render();
 
-  const pageDownloads = selected.filter((candidate) => candidate.downloadMode === 'page');
-  const chromeDownloads = selected.filter((candidate) => candidate.downloadMode !== 'page');
+  const pageDownloads = selected.filter((candidate) => candidate.downloadMode === 'page' && !isPximgUrl(candidate.url));
+  const chromeDownloads = selected.filter((candidate) => candidate.downloadMode !== 'page' || isPximgUrl(candidate.url));
 
   if (chromeDownloads.length) {
     await queuePreparedDownloads(sessionId, chromeDownloads);
@@ -643,8 +644,22 @@ function toDownloadItem(candidate) {
     url: candidate.url,
     type: candidate.type,
     extension: candidate.extension,
-    filename: candidate.filename
+    filename: candidate.filename,
+    headers: downloadHeadersForCandidate(candidate)
   };
+}
+
+function downloadHeadersForCandidate(candidate) {
+  if (isPximgUrl(candidate.url)) {
+    return [
+      {
+        name: 'Referer',
+        value: 'https://www.pixiv.net/'
+      }
+    ];
+  }
+
+  return candidate.headers || [];
 }
 
 function toPageFetchItem(candidate) {
@@ -998,6 +1013,14 @@ function normalizeDownloadSpeed(speedMode) {
   return ['conservative', 'normal', 'fast'].includes(speedMode) ? speedMode : DEFAULT_DOWNLOAD_SETTINGS.speedMode;
 }
 
+function isPximgUrl(url) {
+  try {
+    return new URL(url).host === 'i.pximg.net';
+  } catch (error) {
+    return false;
+  }
+}
+
 function getActiveTab() {
   return new Promise((resolve, reject) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -1320,6 +1343,7 @@ function collectMediaCandidates() {
       source: input.source || 'page',
       filename: input.filename || '',
       downloadMode: input.downloadMode || 'chrome',
+      headers: Array.isArray(input.headers) ? input.headers : [],
       pageHost: pageUrl.host,
       sameOrigin: sameOrigin(url),
       width: input.width || null,
@@ -1340,6 +1364,9 @@ function collectMediaCandidates() {
     }
     if (!existing.snapshotRect && candidate.snapshotRect) {
       existing.snapshotRect = candidate.snapshotRect;
+    }
+    if ((!existing.headers || !existing.headers.length) && candidate.headers?.length) {
+      existing.headers = candidate.headers;
     }
     if (!existing.filename && candidate.filename) {
       existing.filename = candidate.filename;
@@ -1433,7 +1460,13 @@ function collectMediaCandidates() {
       type: 'image',
       extension,
       filename: decodeFilename(originalUrl.split('/').pop() || ''),
-      downloadMode: 'page',
+      downloadMode: 'chrome',
+      headers: [
+        {
+          name: 'Referer',
+          value: 'https://www.pixiv.net/'
+        }
+      ],
       source: 'pixiv original',
       width,
       height,

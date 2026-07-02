@@ -161,6 +161,17 @@ function startDownload(session, item) {
 
   const filename = buildFilename(item, item.index);
   const downloadPath = `${session.folder}/${filename}`;
+  const downloadOptions = {
+    url: item.url,
+    filename: downloadPath,
+    conflictAction: 'uniquify',
+    saveAs: false
+  };
+  const headers = normalizeDownloadHeaders(item.headers);
+
+  if (headers.length) {
+    downloadOptions.headers = headers;
+  }
 
   sendDownloadProgress({
     sessionId: session.id,
@@ -171,12 +182,7 @@ function startDownload(session, item) {
   });
 
   chrome.downloads.download(
-    {
-      url: item.url,
-      filename: downloadPath,
-      conflictAction: 'uniquify',
-      saveAs: false
-    },
+    downloadOptions,
     (downloadId) => {
       if (chrome.runtime.lastError || !downloadId) {
         markSessionDownloadFinished(session.id, false);
@@ -200,6 +206,19 @@ function startDownload(session, item) {
       });
     }
   );
+}
+
+function normalizeDownloadHeaders(headers) {
+  if (!Array.isArray(headers)) {
+    return [];
+  }
+
+  return headers
+    .filter((header) => header && header.name && typeof header.value === 'string')
+    .map((header) => ({
+      name: String(header.name),
+      value: header.value
+    }));
 }
 
 function handleDownloadTimeout(downloadId) {
