@@ -3,6 +3,25 @@ const test = require('node:test');
 
 const PopupState = require('../popup-state.js');
 
+test('v2.0 state receives safe default download settings', () => {
+  assert.deepEqual(PopupState.normalizeDownloadSettings(null), {
+    speedMode: 'normal',
+    subfolder: '',
+    autoSubfolder: true
+  });
+});
+
+test('an older saved custom folder remains custom after migration', () => {
+  assert.deepEqual(PopupState.normalizeDownloadSettings({
+    speedMode: 'fast',
+    subfolder: 'forum/thread-42'
+  }), {
+    speedMode: 'fast',
+    subfolder: 'forum/thread-42',
+    autoSubfolder: false
+  });
+});
+
 test('old v2.0 progress state migrates without losing aggregate counts', () => {
   const progress = PopupState.normalizeProgress({
     sessionId: 'old-session',
@@ -18,6 +37,7 @@ test('old v2.0 progress state migrates without losing aggregate counts', () => {
   assert.deepEqual(progress.itemIds, []);
   assert.deepEqual(progress.completedItemIds, []);
   assert.equal(progress.phase, 'idle');
+  assert.deepEqual(PopupState.normalizeProgress(null).itemIds, []);
 });
 
 test('terminal outcomes are idempotent and mutually exclusive', () => {

@@ -200,7 +200,7 @@ Done when:
 
 ## Milestone 8: Popup UI Rethink
 
-Status: in progress
+Status: in progress (implementation complete; unpacked Chrome layout matrix pending)
 
 - Create and save a new compact mockup before implementation, using the current
   working extension as the functional baseline.
@@ -232,7 +232,7 @@ Done when:
 
 ## Milestone 9: Tests, Migration, And Release
 
-Status: in progress
+Status: in progress (automated checks and documentation complete; unpacked Chrome matrix pending)
 
 - Add focused tests for folder sanitizing, filename source priority, generated
   fallback names, duplicate resolution, and cancellation state transitions.
@@ -274,6 +274,10 @@ Use the bundled Codex Node runtime if `node` is unavailable:
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest.json OK')"
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests/*.test.js
 ```
+
+The reproducible automated evidence and unpacked Chrome matrix are maintained in
+`docs/v2.1-validation.md`. Milestones 8 and 9 remain in progress until that
+matrix has no blocking failures.
 
 ## Stop Conditions
 

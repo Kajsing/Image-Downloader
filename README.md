@@ -107,3 +107,6 @@ filename and folder resolution, duplicate handling, and the popup's DOM
 contract. A full browser smoke test should still be done by loading the
 extension unpacked in Chrome and checking direct media, forum attachments,
 Pixiv, a 200+ item Abort, and narrow popup layout.
+
+Use [`docs/v2.1-validation.md`](docs/v2.1-validation.md) for the complete
+release matrix and pass criteria.

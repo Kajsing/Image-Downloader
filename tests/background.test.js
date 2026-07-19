@@ -381,3 +381,28 @@ test('an indeterminate launch is not duplicated after a service worker restart',
   assert.equal(restartedWorker.downloadCalls.length, 0);
   assert.deepEqual(Array.from(response.failedItemIds), ['indeterminate']);
 });
+
+test('a new session starts normally after an aborted batch', async () => {
+  const harness = createHarness();
+
+  await harness.sendMessage({
+    action: 'downloadSelectedMedia',
+    sessionId: 'download_first_aborted',
+    page: { host: 'example.test', url: 'https://example.test/thread/11' },
+    items: [mediaItem('first')]
+  });
+  await harness.sendMessage({
+    action: 'cancelDownloadSession',
+    sessionId: 'download_first_aborted'
+  });
+  const response = await harness.sendMessage({
+    action: 'downloadSelectedMedia',
+    sessionId: 'download_second_started',
+    page: { host: 'example.test', url: 'https://example.test/thread/12' },
+    items: [mediaItem('second')]
+  });
+
+  assert.match(response.status, /1 downloads queued/);
+  assert.equal(harness.downloadCalls.length, 2);
+  assert.match(harness.downloadCalls[1].url, /second\.jpg$/);
+});

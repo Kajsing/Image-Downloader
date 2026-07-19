@@ -1,0 +1,120 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const vm = require('node:vm');
+
+const popupSource = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
+const DownloadUtils = require('../download-utils.js');
+const PopupState = require('../popup-state.js');
+
+function createPopupContext() {
+  const context = vm.createContext({
+    console,
+    document: {
+      addEventListener() {},
+      getElementById() {
+        return {};
+      }
+    },
+    DownloadUtils,
+    PopupState,
+    URL,
+    URLSearchParams
+  });
+  vm.runInContext(popupSource, context, { filename: 'popup.js' });
+  return context;
+}
+
+function evaluate(context, source) {
+  return vm.runInContext(source, context);
+}
+
+test('downloads remain limited to selected candidates that pass active filters', () => {
+  const context = createPopupContext();
+  const candidates = [
+    {
+      id: 'wallpaper', selected: true, ignored: false, type: 'image',
+      extension: 'jpg', sameOrigin: true, width: 1920, height: 1080
+    },
+    {
+      id: 'clip', selected: true, ignored: false, type: 'video',
+      extension: 'mp4', sameOrigin: true, width: 1920, height: 1080
+    },
+    {
+      id: 'not-selected', selected: false, ignored: false, type: 'image',
+      extension: 'jpg', sameOrigin: true, width: 2560, height: 1440
+    },
+    {
+      id: 'ignored', selected: true, ignored: true, type: 'image',
+      extension: 'jpg', sameOrigin: true, width: 2560, height: 1440
+    }
+  ];
+
+  context.__fixture = candidates;
+  evaluate(context, `
+    state.candidates = __fixture;
+    state.filters = { type: 'image', extensions: ['jpg'], sameOriginOnly: false, minDimension: 65 };
+  `);
+
+  assert.deepEqual(
+    Array.from(evaluate(context, 'getSelectedCandidates().map((candidate) => candidate.id)')),
+    ['wallpaper']
+  );
+
+  evaluate(context, "state.filters.extensions = ['png']");
+  assert.deepEqual(
+    Array.from(evaluate(context, 'getSelectedCandidates().map((candidate) => candidate.id)')),
+    []
+  );
+});
+
+test('ignore fingerprints still hide matching candidates and clear selection', () => {
+  const context = createPopupContext();
+  context.__fixture = [{
+    id: 'repeat',
+    url: 'https://example.test/media/repeat.jpg?cache=123',
+    filename: 'repeat.jpg',
+    type: 'image',
+    extension: 'jpg',
+    width: 800,
+    height: 600,
+    selected: true,
+    ignored: false
+  }];
+  evaluate(context, 'state.candidates = __fixture');
+  const fingerprint = evaluate(context, 'buildCandidateFingerprints(state.candidates[0])[0]');
+  context.__fingerprint = fingerprint;
+  evaluate(context, `state.ignoreList = [{ fingerprint: __fingerprint }]`);
+
+  assert.equal(evaluate(context, 'applyIgnoreListToCandidates()'), 1);
+  assert.equal(evaluate(context, 'state.candidates[0].ignored'), true);
+  assert.equal(evaluate(context, 'state.candidates[0].selected'), false);
+});
+
+test('saved tab state is scoped to the full page URL apart from its hash', () => {
+  const context = createPopupContext();
+
+  assert.equal(evaluate(
+    context,
+    "isSamePageUrl('https://forum.test/thread/1#post-2', 'https://forum.test/thread/1#post-3')"
+  ), true);
+  assert.equal(evaluate(
+    context,
+    "isSamePageUrl('https://forum.test/thread/1?page=1', 'https://forum.test/thread/1?page=2')"
+  ), false);
+});
+
+test('stored destinations are sanitized before they are shown again', () => {
+  const context = createPopupContext();
+  context.__settings = {
+    speedMode: 'fast',
+    subfolder: '../../forum\\thread-42',
+    autoSubfolder: false
+  };
+
+  const settings = evaluate(context, 'normalizeStoredDownloadSettings(__settings)');
+  assert.equal(settings.speedMode, 'fast');
+  assert.equal(settings.subfolder, 'forum/thread-42');
+  assert.equal(settings.autoSubfolder, false);
+});

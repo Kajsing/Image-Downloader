@@ -1,7 +1,22 @@
 (function attachPopupState(root) {
   const LARGE_BATCH_CONFIRMATION_THRESHOLD = 50;
 
+  function normalizeDownloadSettings(saved = {}) {
+    const source = saved && typeof saved === 'object' ? saved : {};
+    const subfolder = typeof source.subfolder === 'string' ? source.subfolder : '';
+    return {
+      speedMode: ['conservative', 'normal', 'fast'].includes(source.speedMode)
+        ? source.speedMode
+        : 'normal',
+      subfolder,
+      autoSubfolder: typeof source.autoSubfolder === 'boolean'
+        ? source.autoSubfolder
+        : !subfolder
+    };
+  }
+
   function normalizeProgress(saved = {}) {
+    const source = saved && typeof saved === 'object' ? saved : {};
     return {
       sessionId: null,
       queued: 0,
@@ -15,11 +30,11 @@
       latestError: '',
       phase: 'idle',
       active: false,
-      ...saved,
-      itemIds: arrayOfStrings(saved.itemIds),
-      completedItemIds: arrayOfStrings(saved.completedItemIds),
-      failedItemIds: arrayOfStrings(saved.failedItemIds),
-      cancelledItemIds: arrayOfStrings(saved.cancelledItemIds)
+      ...source,
+      itemIds: arrayOfStrings(source.itemIds),
+      completedItemIds: arrayOfStrings(source.completedItemIds),
+      failedItemIds: arrayOfStrings(source.failedItemIds),
+      cancelledItemIds: arrayOfStrings(source.cancelledItemIds)
     };
   }
 
@@ -64,6 +79,7 @@
   const api = {
     LARGE_BATCH_CONFIRMATION_THRESHOLD,
     needsLargeBatchConfirmation,
+    normalizeDownloadSettings,
     normalizeProgress,
     recordOutcome,
     remainingItemIds

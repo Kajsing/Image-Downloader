@@ -18,11 +18,7 @@ const DEFAULT_FILTERS = {
   sameOriginOnly: false,
   minDimension: 65
 };
-const DEFAULT_DOWNLOAD_SETTINGS = {
-  speedMode: 'normal',
-  subfolder: '',
-  autoSubfolder: true
-};
+const DEFAULT_DOWNLOAD_SETTINGS = PopupState.normalizeDownloadSettings();
 
 const refs = {
   scanBtn: document.getElementById('scanBtn'),
@@ -1352,11 +1348,7 @@ async function loadStateForTab(tabId) {
         : [...DEFAULT_FILTERS.extensions]
     },
     progress: PopupState.normalizeProgress(savedState.progress),
-    downloadSettings: {
-      ...DEFAULT_DOWNLOAD_SETTINGS,
-      ...(savedState.downloadSettings || {}),
-      speedMode: normalizeDownloadSpeed(savedState.downloadSettings?.speedMode)
-    },
+    downloadSettings: normalizeStoredDownloadSettings(savedState.downloadSettings),
     isScanning: false,
     isDownloading: false
   };
@@ -1655,6 +1647,15 @@ function storageKey(tabId) {
 
 function normalizeDownloadSpeed(speedMode) {
   return ['conservative', 'normal', 'fast'].includes(speedMode) ? speedMode : DEFAULT_DOWNLOAD_SETTINGS.speedMode;
+}
+
+function normalizeStoredDownloadSettings(savedSettings) {
+  const settings = PopupState.normalizeDownloadSettings(savedSettings);
+  settings.subfolder = DownloadUtils.sanitizeSubfolder(settings.subfolder);
+  if (!settings.subfolder) {
+    settings.autoSubfolder = true;
+  }
+  return settings;
 }
 
 function isPximgUrl(url) {
