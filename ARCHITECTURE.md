@@ -13,6 +13,12 @@ The extension is a Manifest V3 Chrome Extension with:
 - `chrome.storage.local` for per-tab candidate, filter, selection, and progress
   state. Saved scan state is restored only when the active tab still has the
   same page URL.
+- `chrome.storage.session` for lightweight active download ids, terminal item
+  ledgers, and cancellation tombstones that must survive service-worker restarts.
+- `download-utils.js` for shared destination and filename rules used by both the
+  popup and background worker.
+- `popup-state.js` for progress-state migration, terminal outcome ledgers, and
+  the large-batch confirmation threshold.
 
 ## Popup UI
 
@@ -23,10 +29,12 @@ The popup is the command surface:
 - Renders filters for media type, extension, same-origin, and minimum size.
 - Defaults the minimum-size filter to 65px, which removes most icons without
   hiding ordinary thumbnails. Users can switch back to any size when needed.
-- Renders a compact selectable preview grid.
+- Renders a compact selectable one-column media list with proposed filenames.
 - Provides selection helpers for visible results and likely wallpapers.
-- Starts selected downloads.
-- Displays queued, completed, failed, and latest-error download status.
+- Shows and edits the current batch's page/thread-specific destination.
+- Confirms batches of 50 or more files before starting them.
+- Starts or aborts the current selected-download session.
+- Displays queued, completed, failed, cancelled, and latest-error status.
 
 The popup is intentionally dense and practical. It should feel like a repeated
 use tool, not a marketing page.
@@ -82,6 +90,7 @@ Each candidate uses this shape in popup state:
   extension: string,
   source: string,
   filename: string,
+  filenameHints: string[],
   downloadMode: "chrome" | "page",
   pageHost: string,
   sameOrigin: boolean,
@@ -106,6 +115,7 @@ State includes:
 - Current selection.
 - Download progress.
 - Last status message.
+- Download destination settings and per-item terminal outcome ledgers.
 
 A separate global ignore list is stored under `guided_media_ignore_list`.
 Ignored media is matched by stable fingerprints derived from canonical media URL
@@ -120,16 +130,37 @@ The background worker owns downloads.
 Responsibilities:
 
 - Receive selected media candidates from the popup.
-- Generate safe filenames and dated host folders.
+- Generate safe filenames and page/thread folders through the shared resolver.
 - Start downloads with `conflictAction: "uniquify"`.
-- Track active Chrome download ids while the service worker is alive.
-- Report completed and failed downloads back to the popup.
+- Track active Chrome download ids in memory and mirror the minimum recoverable
+  session state in `chrome.storage.session`.
+- Restore active ids and recoverable queued URL downloads after a service-worker
+  restart before accepting new session commands.
+- Record items that are transitioning into Chrome's download API. If the worker
+  restarts before Chrome returns a download id, report that indeterminate item
+  as failed instead of risking a duplicate download.
+- Cancel pending work, active downloads, retries, and Pixiv fetch controllers
+  for an aborted session.
+- Dedupe terminal events by item id and report completed, failed, and cancelled
+  outcomes back to the popup.
 
 Downloads are saved under:
 
 ```text
-ImageDownloader/{host}_{yyyy-mm-dd}/
+ImageDownloader/{host}/{page-or-thread-identity}/
 ```
+
+The popup may replace the suggested subfolder for a batch. Every segment is
+sanitized and traversal segments are discarded before the path reaches the
+downloads API.
+
+## Filename Resolution
+
+The shared resolver tries response `Content-Disposition`, explicit attachment
+and DOM metadata, final/original URL basenames, then a stable page-based name.
+Route-like values such as `fetch`, `download`, and `index.php` are rejected as
+filenames. Duplicate names receive deterministic `_02`, `_03`, and later
+suffixes before Chrome's `uniquify` behavior remains as the last safety net.
 
 ## Security Notes
 
@@ -144,8 +175,16 @@ ImageDownloader/{host}_{yyyy-mm-dd}/
 
 - A full manual Chrome smoke test should still be run after loading the
   extension unpacked.
-- Download completion progress is best-effort while the popup and service worker
-  are alive. Chrome's downloads UI remains the source of truth after that.
+- A page-session attachment batch is owned by the injected page context while it
+  is being prepared. Abort signals its registered controllers; if the page or
+  popup disappears first, the batch is reconciled as interrupted and is never
+  appended late to Chrome downloads.
+- Prepared `data:` payloads are intentionally not persisted across a worker
+  restart because they can exceed session-storage quota. Page batches are kept
+  at or below the active concurrency so those payloads are handed directly to
+  Chrome instead of accumulating in the recoverable queue.
+- Chrome's downloads UI remains the final source of truth for files that finish
+  exactly while the extension worker is being terminated.
 
 ## Stabilization Notes
 

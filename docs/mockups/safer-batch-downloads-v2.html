@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safer Batch Downloads UI Direction</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #172033;
+      background: #e8ebf0;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px; }
+    .board { display: flex; gap: 28px; width: max-content; margin: 0 auto; }
+    .state { display: grid; gap: 9px; }
+    .state-label { color: #536074; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .popup {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      width: 390px;
+      height: 650px;
+      overflow: hidden;
+      border: 1px solid #cbd2dd;
+      border-radius: 8px;
+      background: #f8f9fb;
+      box-shadow: 0 12px 34px rgba(25, 34, 50, 0.16);
+    }
+    .header { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 13px 14px 11px; background: white; }
+    .title { font-size: 17px; font-weight: 800; }
+    .host { color: #667286; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ready { align-self: start; padding: 4px 7px; border-radius: 5px; background: #eaf7ef; color: #19713d; font-size: 11px; font-weight: 700; }
+    .toolbar { display: grid; gap: 8px; padding: 9px 12px; border-block: 1px solid #d8dee8; background: #f4f6f9; }
+    .tabs, .actions { display: flex; align-items: center; gap: 6px; }
+    button { height: 30px; padding: 0 10px; border: 1px solid #ccd4e0; border-radius: 6px; background: white; color: #344055; font: inherit; font-size: 12px; font-weight: 700; }
+    button.active { border-color: #1a73e8; background: #edf5ff; color: #1767cf; }
+    .count { margin-left: auto; color: #667286; font-size: 11px; }
+    .results { overflow: hidden; background: white; }
+    .media-row { display: grid; grid-template-columns: 20px 76px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 82px; padding: 8px 12px; border-bottom: 1px solid #e2e6ed; }
+    .check { display: grid; width: 17px; height: 17px; border: 1px solid #1670e5; border-radius: 4px; place-items: center; background: #1a73e8; color: white; font-size: 11px; font-weight: 800; }
+    .check.off { border-color: #aeb8c7; background: white; color: transparent; }
+    .thumb { width: 76px; height: 56px; border-radius: 5px; object-fit: cover; background: #dfe5ee; }
+    .info { min-width: 0; }
+    .filename { overflow: hidden; color: #172033; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .meta { margin-top: 5px; color: #687386; font-size: 11px; }
+    .badge { padding: 3px 5px; border-radius: 4px; background: #eef1f5; color: #435066; font-size: 10px; font-weight: 800; }
+    .footer { display: grid; gap: 9px; padding: 10px 12px 12px; border-top: 1px solid #cfd6e1; background: white; box-shadow: 0 -8px 22px rgba(25, 34, 50, 0.08); }
+    .destination-label { color: #667286; font-size: 11px; }
+    .destination { display: flex; align-items: center; height: 32px; margin-top: 4px; overflow: hidden; border: 1px solid #cbd4e1; border-radius: 6px; color: #667286; font-size: 11px; }
+    .root { padding-left: 8px; }
+    .path { min-width: 0; padding-right: 8px; color: #172033; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .batch-line { display: flex; align-items: center; gap: 10px; color: #536074; font-size: 11px; }
+    .batch-line strong { color: #172033; font-size: 13px; }
+    .speed { margin-left: auto; }
+    .primary { width: 100%; height: 38px; border: 0; background: #1a73e8; color: white; font-size: 13px; }
+    .primary.abort { background: #c9352b; }
+    .progress { height: 7px; overflow: hidden; border-radius: 4px; background: #dfe5ed; }
+    .progress > span { display: block; width: 38%; height: 100%; background: #1a73e8; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; color: #687386; font-size: 10px; }
+    .stats strong { display: block; margin-top: 2px; color: #172033; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="state">
+      <div class="state-label">Ready to download</div>
+      <div class="popup">
+        <header class="header"><div class="title">Image Downloader</div><span class="ready">READY</span><div class="host">boards.4chan.org / wg / thread 8098766</div></header>
+        <section class="toolbar">
+          <div class="tabs"><button class="active">All 92</button><button>Images 81</button><button>Videos 11</button><button>Filters 2</button></div>
+          <div class="actions"><button>Likely</button><button>Select visible</button><button>Clear</button><span class="count">13 selected</span></div>
+        </section>
+        <section class="results">
+          <div class="media-row"><span class="check">v</span><img class="thumb" src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">mountain-lake-sunrise.jpg</div><div class="meta">JPG · 3840 x 2160 · linked original</div></div><span class="badge">JPG</span></div>
+          <div class="media-row"><span class="check">v</span><img class="thumb" src="https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">pocket-computers_image_002_q91f0d.jpg</div><div class="meta">JPG · 2560 x 1440 · attachment</div></div><span class="badge">JPG</span></div>
+          <div class="media-row"><span class="check off">v</span><img class="thumb" src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">forest-light.webp</div><div class="meta">WEBP · 1920 x 1080 · image element</div></div><span class="badge">WEBP</span></div>
+          <div class="media-row"><span class="check">v</span><img class="thumb" src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">desert-road-evening.jpg</div><div class="meta">JPG · 2400 x 1600 · linked original</div></div><span class="badge">JPG</span></div>
+        </section>
+        <footer class="footer"><label class="destination-label">Destination<div class="destination"><span class="root">ImageDownloader/</span><span class="path">boards.4chan.org/wg-thread-8098766-pocket-computers</span></div></label><div class="batch-line"><strong>13 files</strong><span class="speed">Balanced</span></div><button class="primary">Download 13 files</button></footer>
+      </div>
+    </section>
+
+    <section class="state">
+      <div class="state-label">Active batch</div>
+      <div class="popup">
+        <header class="header"><div class="title">Image Downloader</div><span class="ready">DOWNLOADING</span><div class="host">boards.4chan.org / wg / thread 8098766</div></header>
+        <section class="toolbar"><div class="tabs"><button class="active">All 92</button><button disabled>Images 81</button><button disabled>Videos 11</button><button disabled>Filters 2</button></div><div class="actions"><button disabled>Likely</button><button disabled>Select visible</button><button disabled>Clear</button><span class="count">247 selected</span></div></section>
+        <section class="results">
+          <div class="media-row"><span class="check">v</span><img class="thumb" src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">mountain-lake-sunrise.jpg</div><div class="meta">Completed</div></div><span class="badge">JPG</span></div>
+          <div class="media-row"><span class="check">v</span><img class="thumb" src="https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">pocket-computers_image_002_q91f0d.jpg</div><div class="meta">Downloading · attempt 1</div></div><span class="badge">JPG</span></div>
+          <div class="media-row"><span class="check">v</span><img class="thumb" src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">forest-light.webp</div><div class="meta">Queued</div></div><span class="badge">WEBP</span></div>
+          <div class="media-row"><span class="check">v</span><img class="thumb" src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&amp;fit=crop&amp;w=180&amp;q=75" alt=""><div class="info"><div class="filename">desert-road-evening.jpg</div><div class="meta">Queued</div></div><span class="badge">JPG</span></div>
+        </section>
+        <footer class="footer"><label class="destination-label">Destination<div class="destination"><span class="root">ImageDownloader/</span><span class="path">boards.4chan.org/wg-thread-8098766-pocket-computers</span></div></label><div class="progress"><span></span></div><div class="stats"><span>Queued<strong>247</strong></span><span>Done<strong>91</strong></span><span>Failed<strong>2</strong></span><span>Cancelled<strong>0</strong></span></div><button class="primary abort">Abort batch</button></footer>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

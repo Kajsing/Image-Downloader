@@ -19,7 +19,9 @@ const DEFAULT_FILTERS = {
   minDimension: 65
 };
 const DEFAULT_DOWNLOAD_SETTINGS = {
-  speedMode: 'normal'
+  speedMode: 'normal',
+  subfolder: '',
+  autoSubfolder: true
 };
 
 const refs = {
@@ -32,8 +34,11 @@ const refs = {
   videoCount: document.getElementById('videoCount'),
   sameOriginOnly: document.getElementById('sameOriginOnly'),
   extensionFilters: document.getElementById('extensionFilters'),
+  filterToggleBtn: document.getElementById('filterToggleBtn'),
+  filterPanel: document.getElementById('filterPanel'),
   minDimension: document.getElementById('minDimension'),
   downloadSpeed: document.getElementById('downloadSpeed'),
+  destinationFolder: document.getElementById('destinationFolder'),
   resetFiltersBtn: document.getElementById('resetFiltersBtn'),
   selectLikelyBtn: document.getElementById('selectLikelyBtn'),
   selectAllBtn: document.getElementById('selectAllBtn'),
@@ -51,12 +56,19 @@ const refs = {
   queuedCount: document.getElementById('queuedCount'),
   doneCount: document.getElementById('doneCount'),
   failedCount: document.getElementById('failedCount'),
+  cancelledCount: document.getElementById('cancelledCount'),
   latestError: document.getElementById('latestError'),
+  confirmationPanel: document.getElementById('confirmationPanel'),
+  confirmationText: document.getElementById('confirmationText'),
+  cancelConfirmBtn: document.getElementById('cancelConfirmBtn'),
+  confirmDownloadBtn: document.getElementById('confirmDownloadBtn'),
   downloadBtn: document.getElementById('downloadBtn')
 };
 
 let state = createDefaultState();
 let persistTimer = null;
+let filtersOpen = false;
+let confirmationOpen = false;
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -70,14 +82,7 @@ function createDefaultState() {
     ignoreList: [],
     filters: { ...DEFAULT_FILTERS, extensions: [...DEFAULT_FILTERS.extensions] },
     downloadSettings: { ...DEFAULT_DOWNLOAD_SETTINGS },
-    progress: {
-      sessionId: null,
-      queued: 0,
-      done: 0,
-      failed: 0,
-      latestError: '',
-      active: false
-    },
+    progress: PopupState.normalizeProgress(),
     statusMessage: 'Scan the active tab to collect media candidates.',
     statusLabel: 'Ready',
     isScanning: false,
@@ -104,6 +109,10 @@ async function init() {
 
 function wireEvents() {
   refs.scanBtn.addEventListener('click', scanPage);
+  refs.filterToggleBtn.addEventListener('click', () => {
+    filtersOpen = !filtersOpen;
+    renderFilters();
+  });
   refs.sameOriginOnly.addEventListener('change', () => {
     state.filters.sameOriginOnly = refs.sameOriginOnly.checked;
     persistState();
@@ -120,6 +129,13 @@ function wireEvents() {
     persistState();
     render();
   });
+  refs.destinationFolder.addEventListener('input', () => {
+    state.downloadSettings.subfolder = DownloadUtils.sanitizeSubfolder(refs.destinationFolder.value);
+    state.downloadSettings.autoSubfolder = false;
+    refs.destinationFolder.value = state.downloadSettings.subfolder;
+    renderConfirmationText();
+    queuePersistState();
+  });
   refs.resetFiltersBtn.addEventListener('click', resetFilters);
   refs.selectLikelyBtn.addEventListener('click', selectLikelyWallpapers);
   refs.selectAllBtn.addEventListener('click', () => setVisibleSelection(true));
@@ -127,7 +143,22 @@ function wireEvents() {
   refs.ignoreSelectedBtn.addEventListener('click', ignoreSelectedMedia);
   refs.clearIgnoresBtn.addEventListener('click', clearIgnoredMedia);
   refs.clearSelectionBtn.addEventListener('click', clearSelection);
-  refs.downloadBtn.addEventListener('click', downloadSelected);
+  refs.cancelConfirmBtn.addEventListener('click', () => {
+    confirmationOpen = false;
+    renderFooter();
+  });
+  refs.confirmDownloadBtn.addEventListener('click', () => {
+    confirmationOpen = false;
+    downloadSelected();
+  });
+  refs.downloadBtn.addEventListener('click', () => {
+    if (state.progress.active) {
+      abortDownloadSession();
+      return;
+    }
+
+    requestDownloadSelected();
+  });
 
   document.querySelectorAll('[data-type-filter]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -165,6 +196,7 @@ function wireEvents() {
     const candidate = state.candidates.find((item) => item.id === checkbox.dataset.candidateId);
     if (candidate) {
       candidate.selected = checkbox.checked;
+      confirmationOpen = false;
       persistState();
       renderFooter();
       renderVisibleCount();
@@ -191,7 +223,12 @@ function renderExtensionFilters() {
 }
 
 async function scanPage() {
+  if (state.progress.active) {
+    return;
+  }
+
   state.isScanning = true;
+  confirmationOpen = false;
   state.progress = createDefaultState().progress;
   setStatus('Scanning page...', 'Scanning');
   render();
@@ -207,6 +244,7 @@ async function scanPage() {
     state.pageUrl = scanResult.pageUrl || tab.url || '';
     state.pageHost = scanResult.pageHost || state.pageHost;
     state.pageTitle = scanResult.pageTitle || tab.title || '';
+    updateSuggestedDestination();
     state.candidates = candidates.map(normalizeCandidate);
     const ignoredCount = applyIgnoreListToCandidates();
     await hydrateSnapshotPreviews(tab.windowId);
@@ -237,6 +275,7 @@ function normalizeCandidate(candidate, index) {
     extension,
     source: candidate.source || 'page',
     filename: candidate.filename || '',
+    filenameHints: Array.isArray(candidate.filenameHints) ? candidate.filenameHints : [],
     downloadMode: candidate.downloadMode || 'chrome',
     headers: Array.isArray(candidate.headers) ? candidate.headers : [],
     pageHost: candidate.pageHost || state.pageHost,
@@ -272,9 +311,14 @@ function renderHeader() {
   refs.tabStatus.textContent = state.isScanning
     ? 'Scanning'
     : state.progress.active
-      ? 'Downloading'
+      ? state.progress.phase === 'aborting' ? 'Aborting' : 'Downloading'
       : state.statusLabel;
-  refs.scanBtn.disabled = state.isScanning;
+  refs.tabStatus.classList.toggle('is-warning', ['Warning', 'Aborting'].includes(refs.tabStatus.textContent));
+  refs.tabStatus.classList.toggle('is-danger', ['Error', 'Aborted'].includes(refs.tabStatus.textContent));
+  refs.scanBtn.disabled = state.isScanning || state.progress.active;
+  refs.scanBtn.textContent = state.isScanning
+    ? 'Scanning...'
+    : state.candidates.length ? 'Rescan' : 'Scan';
   refs.statusText.textContent = state.statusMessage;
 }
 
@@ -288,21 +332,39 @@ function renderSummary() {
 }
 
 function renderFilters() {
+  const locked = state.progress.active;
+  refs.filterPanel.hidden = !filtersOpen;
+  refs.filterToggleBtn.setAttribute('aria-expanded', String(filtersOpen));
+  refs.filterToggleBtn.disabled = locked;
+  const activeFilterCount = Number(state.filters.sameOriginOnly)
+    + Number(state.filters.minDimension !== DEFAULT_FILTERS.minDimension)
+    + Number(state.filters.extensions.length !== EXTENSIONS.length);
+  refs.filterToggleBtn.textContent = activeFilterCount ? `Filters ${activeFilterCount}` : 'Filters';
   document.querySelectorAll('[data-type-filter]').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.typeFilter === state.filters.type);
+    button.disabled = locked;
   });
 
   refs.sameOriginOnly.checked = state.filters.sameOriginOnly;
+  refs.sameOriginOnly.disabled = locked;
   refs.minDimension.value = String(state.filters.minDimension);
+  refs.minDimension.disabled = locked;
   refs.downloadSpeed.value = normalizeDownloadSpeed(state.downloadSettings.speedMode);
+  refs.downloadSpeed.disabled = locked;
+  refs.resetFiltersBtn.disabled = locked;
 
   refs.extensionFilters.querySelectorAll('[data-extension]').forEach((button) => {
     button.classList.toggle('is-active', state.filters.extensions.includes(button.dataset.extension));
+    button.disabled = locked;
   });
 }
 
 function renderResults() {
   const visibleCandidates = getFilteredCandidates();
+  const selectedFilenames = new Map(
+    DownloadUtils.prepareDownloadItems(getSelectedCandidates(), currentPageInfo())
+      .map((candidate) => [candidate.id, candidate.filename])
+  );
   refs.resultsList.textContent = '';
 
   refs.emptyState.hidden = visibleCandidates.length > 0;
@@ -313,13 +375,13 @@ function renderResults() {
       : 'No media scanned yet.';
 
   visibleCandidates.forEach((candidate) => {
-    refs.resultsList.appendChild(createMediaCard(candidate));
+    refs.resultsList.appendChild(createMediaCard(candidate, selectedFilenames.get(candidate.id)));
   });
 
   renderVisibleCount();
 }
 
-function createMediaCard(candidate) {
+function createMediaCard(candidate, selectedFilename = '') {
   const card = document.createElement('article');
   card.className = 'media-card';
   card.classList.toggle('is-selected', candidate.selected);
@@ -329,6 +391,7 @@ function createMediaCard(candidate) {
   checkbox.type = 'checkbox';
   checkbox.className = 'media-check';
   checkbox.checked = candidate.selected;
+  checkbox.disabled = state.progress.active;
   checkbox.dataset.candidateId = candidate.id;
   checkbox.setAttribute('aria-label', `Select ${candidate.extension.toUpperCase()} media`);
   card.appendChild(checkbox);
@@ -362,6 +425,12 @@ function createMediaCard(candidate) {
 
   const meta = document.createElement('div');
   meta.className = 'media-meta';
+
+  const filename = document.createElement('span');
+  filename.className = 'filename-text';
+  filename.textContent = selectedFilename || proposedFilename(candidate);
+  filename.title = filename.textContent;
+  meta.appendChild(filename);
 
   const metaTop = document.createElement('div');
   metaTop.className = 'meta-top';
@@ -407,20 +476,38 @@ function renderVisibleCount() {
 
 function renderFooter() {
   const selected = getSelectedCandidates();
+  if (!PopupState.needsLargeBatchConfirmation(selected.length) || state.progress.active) {
+    confirmationOpen = false;
+  }
+  refs.destinationFolder.value = state.downloadSettings.subfolder || '';
+  refs.destinationFolder.disabled = state.progress.active;
   refs.selectedCount.textContent = `${selected.length} selected`;
-  refs.downloadBtn.disabled = selected.length === 0 || state.progress.active;
+  refs.downloadBtn.disabled = state.progress.phase === 'aborting' || (!state.progress.active && selected.length === 0);
+  refs.downloadBtn.textContent = state.progress.active
+    ? state.progress.phase === 'aborting' ? 'Aborting...' : 'Abort batch'
+    : selected.length ? `Download ${selected.length} files` : 'Select files';
+  refs.downloadBtn.classList.toggle('is-abort', state.progress.active);
+  refs.downloadBtn.hidden = confirmationOpen;
+  refs.confirmationPanel.hidden = !confirmationOpen;
+  renderConfirmationText();
+  refs.confirmDownloadBtn.textContent = `Start ${selected.length} downloads`;
   refs.ignoreSelectedBtn.disabled = selected.length === 0 || state.progress.active;
   refs.clearIgnoresBtn.disabled = state.ignoreList.length === 0 || state.progress.active;
+  refs.selectAllBtn.disabled = state.progress.active;
+  refs.selectNoneBtn.disabled = state.progress.active;
+  refs.clearSelectionBtn.disabled = state.progress.active;
+  refs.selectLikelyBtn.disabled = state.progress.active;
   refs.ignoredCount.textContent = `${state.ignoreList.length} ignored`;
 
   const queued = state.progress.queued || 0;
-  const finished = state.progress.done + state.progress.failed;
+  const finished = state.progress.done + state.progress.failed + state.progress.cancelled;
   const percent = queued ? Math.round((finished / queued) * 100) : 0;
   refs.progressBar.style.width = `${Math.min(percent, 100)}%`;
   refs.progressPercent.textContent = `${Math.min(percent, 100)}%`;
   refs.queuedCount.textContent = String(queued);
   refs.doneCount.textContent = String(state.progress.done);
   refs.failedCount.textContent = String(state.progress.failed);
+  refs.cancelledCount.textContent = String(state.progress.cancelled);
 
   refs.latestError.hidden = !state.progress.latestError;
   refs.latestError.textContent = state.progress.latestError;
@@ -594,7 +681,11 @@ function isLikelyWallpaper(candidate) {
 }
 
 async function downloadSelected() {
-  const selected = getSelectedCandidates();
+  ensureDownloadDestination();
+  const selected = DownloadUtils.prepareDownloadItems(
+    getSelectedCandidates(),
+    currentPageInfo()
+  );
   if (!selected.length || state.progress.active) {
     return;
   }
@@ -605,7 +696,13 @@ async function downloadSelected() {
     queued: selected.length,
     done: 0,
     failed: 0,
+    cancelled: 0,
+    itemIds: selected.map((candidate) => candidate.id),
+    completedItemIds: [],
+    failedItemIds: [],
+    cancelledItemIds: [],
     latestError: '',
+    phase: 'preparing',
     active: true
   };
   state.isDownloading = true;
@@ -620,7 +717,7 @@ async function downloadSelected() {
     await queuePreparedDownloads(sessionId, chromeDownloads);
   }
 
-  if (pageDownloads.length) {
+  if (pageDownloads.length && isCurrentDownloadSessionActive(sessionId)) {
     await prepareAndQueuePageDownloads(sessionId, pageDownloads);
   }
 
@@ -646,12 +743,17 @@ async function prepareAndQueuePageDownloads(sessionId, pageDownloads) {
         batch.map(toPageFetchItem),
         {
           concurrency: fetchConcurrency,
-          timeoutMs: PAGE_FETCH_TIMEOUT_MS
+          timeoutMs: PAGE_FETCH_TIMEOUT_MS,
+          sessionId
         }
       ]);
       const result = results?.[0]?.result || {};
       const fetchedItems = Array.isArray(result.items) ? result.items : [];
       const failed = Array.isArray(result.failed) ? result.failed : [];
+
+      if (!isCurrentDownloadSessionActive(sessionId)) {
+        return;
+      }
 
       if (fetchedItems.length) {
         await queuePreparedDownloads(sessionId, fetchedItems);
@@ -662,6 +764,10 @@ async function prepareAndQueuePageDownloads(sessionId, pageDownloads) {
         fetchConcurrency = reducePageFetchConcurrency(fetchConcurrency);
       }
     } catch (error) {
+      if (!isCurrentDownloadSessionActive(sessionId)) {
+        return;
+      }
+
       markPreparedDownloadsFailed(batch, error.message || 'Could not prepare attachments.');
       fetchConcurrency = reducePageFetchConcurrency(fetchConcurrency);
     }
@@ -678,12 +784,20 @@ async function prepareAndQueuePageDownloads(sessionId, pageDownloads) {
 }
 
 async function queuePreparedDownloads(sessionId, candidates) {
-  if (!candidates.length) {
+  if (!candidates.length || !isCurrentDownloadSessionActive(sessionId)) {
     return;
   }
 
   try {
     const response = await sendDownloadsToBackground(sessionId, candidates.map(toDownloadItem));
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+    if (!isCurrentDownloadSessionActive(sessionId) || response?.cancelled) {
+      return;
+    }
+
+    state.progress.phase = 'downloading';
     setStatus(response?.status || `${candidates.length} downloads queued in Chrome.`, 'Downloading');
   } catch (error) {
     markPreparedDownloadsFailed(candidates, error.message || 'Chrome could not start the downloads.');
@@ -692,6 +806,116 @@ async function queuePreparedDownloads(sessionId, candidates) {
   finishDownloadSessionIfDone();
   persistState();
   render();
+}
+
+function renderConfirmationText() {
+  if (!confirmationOpen) {
+    refs.confirmationText.textContent = '';
+    return;
+  }
+
+  const selectedCount = getSelectedCandidates().length;
+  const speedLabels = { conservative: 'Careful', normal: 'Balanced', fast: 'Fast' };
+  const speedLabel = speedLabels[normalizeDownloadSpeed(state.downloadSettings.speedMode)];
+  refs.confirmationText.textContent = `Start ${selectedCount} downloads to ImageDownloader/${state.downloadSettings.subfolder} at ${speedLabel} speed?`;
+}
+
+function requestDownloadSelected() {
+  const selected = getSelectedCandidates();
+  if (!selected.length || state.progress.active) {
+    return;
+  }
+
+  ensureDownloadDestination();
+  renderFooter();
+
+  if (PopupState.needsLargeBatchConfirmation(selected.length)) {
+    confirmationOpen = true;
+    renderFooter();
+    refs.cancelConfirmBtn.focus();
+    return;
+  }
+
+  downloadSelected();
+}
+
+async function abortDownloadSession() {
+  const sessionId = state.progress.sessionId;
+  if (!sessionId || !state.progress.active || state.progress.phase === 'aborting') {
+    return;
+  }
+
+  state.progress.phase = 'aborting';
+  setStatus('Aborting download batch...', 'Aborting');
+  persistState();
+  render();
+
+  let response;
+  try {
+    response = await sendCancelToBackground(sessionId);
+    if (!response?.cancelled) {
+      throw new Error(response?.error || response?.status || 'Chrome did not confirm the abort request.');
+    }
+  } catch (error) {
+    state.progress.latestError = error.message || 'Chrome could not confirm the abort request.';
+    state.progress.phase = 'downloading';
+    state.progress.active = true;
+    setStatus(state.progress.latestError, 'Warning');
+    await persistState();
+    render();
+    return;
+  }
+
+  if (state.progress.sessionId !== sessionId) {
+    return;
+  }
+
+  await cancelPageFetchesInTab(sessionId);
+  applyTerminalSummary(response);
+  remainingProgressItemIds().forEach((itemId) => recordItemOutcome(itemId, 'cancelled'));
+  state.progress.active = false;
+  state.progress.phase = 'aborted';
+  state.isDownloading = false;
+  setStatus(
+    `Batch aborted. ${state.progress.done} completed before it stopped.`,
+    'Aborted'
+  );
+  await persistState();
+  render();
+}
+
+function sendCancelToBackground(sessionId) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { action: 'cancelDownloadSession', sessionId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        resolve(response || {});
+      }
+    );
+  });
+}
+
+async function cancelPageFetchesInTab(sessionId) {
+  if (!state.tabId) {
+    return;
+  }
+
+  try {
+    await executeScriptWithArgs(state.tabId, cancelPageFetchSession, [sessionId]);
+  } catch (error) {
+    // The page may have navigated or closed; background cancellation still stands.
+  }
+}
+
+function isCurrentDownloadSessionActive(sessionId) {
+  return state.progress.active
+    && state.progress.phase !== 'aborting'
+    && state.progress.sessionId === sessionId;
 }
 
 function sendDownloadsToBackground(sessionId, items) {
@@ -706,7 +930,8 @@ function sendDownloadsToBackground(sessionId, items) {
           url: state.pageUrl
         },
         downloadSettings: {
-          speedMode: normalizeDownloadSpeed(state.downloadSettings.speedMode)
+          speedMode: normalizeDownloadSpeed(state.downloadSettings.speedMode),
+          subfolder: DownloadUtils.sanitizeSubfolder(state.downloadSettings.subfolder)
         },
         items
       },
@@ -729,6 +954,9 @@ function toDownloadItem(candidate) {
     type: candidate.type,
     extension: candidate.extension,
     filename: candidate.filename,
+    filenameHints: candidate.filenameHints || [],
+    responseFilename: candidate.responseFilename || '',
+    finalUrl: candidate.finalUrl || '',
     headers: downloadHeadersForCandidate(candidate)
   };
 }
@@ -752,10 +980,10 @@ function toPageFetchItem(candidate) {
 }
 
 function markPreparedDownloadsFailed(candidates, error) {
-  state.progress.failed += candidates.length;
   state.progress.latestError = error;
 
   candidates.forEach((candidate) => {
+    recordItemOutcome(candidate.id, 'failed');
     const item = state.candidates.find((stateCandidate) => stateCandidate.id === candidate.id);
     if (item) {
       item.warning = error;
@@ -772,9 +1000,12 @@ function reducePageFetchConcurrency(concurrency) {
 }
 
 function finishDownloadSessionIfDone() {
-  const finished = state.progress.done + state.progress.failed;
+  const finished = state.progress.done + state.progress.failed + state.progress.cancelled;
   if (state.progress.queued && finished >= state.progress.queued) {
     state.progress.active = false;
+    state.progress.phase = state.progress.cancelled
+      ? 'aborted'
+      : state.progress.failed ? 'completed-with-errors' : 'completed';
     state.isDownloading = false;
     setStatus(
       state.progress.failed
@@ -790,8 +1021,26 @@ function handleDownloadProgress(message) {
     return;
   }
 
+  const terminalMessage = ['complete', 'failed', 'aborted'].includes(message.status);
+  if ((state.progress.phase === 'aborting' || state.progress.phase === 'aborted') && !terminalMessage) {
+    return;
+  }
+
+  if (message.status === 'started') {
+    state.progress.phase = 'downloading';
+  }
+
+  if (message.status === 'aborted') {
+    applyTerminalSummary(message);
+    remainingProgressItemIds().forEach((itemId) => recordItemOutcome(itemId, 'cancelled'));
+    state.progress.active = false;
+    state.progress.phase = 'aborted';
+    state.isDownloading = false;
+    setStatus(`Batch aborted. ${state.progress.done} completed before it stopped.`, 'Aborted');
+  }
+
   if (message.status === 'complete') {
-    state.progress.done += 1;
+    recordItemOutcome(message.itemId, 'completed');
   }
 
   if (message.status === 'retry') {
@@ -810,7 +1059,7 @@ function handleDownloadProgress(message) {
   }
 
   if (message.status === 'failed') {
-    state.progress.failed += 1;
+    recordItemOutcome(message.itemId, 'failed');
     state.progress.latestError = message.error || 'A download failed.';
     const candidate = state.candidates.find((item) => item.id === message.itemId);
     if (candidate) {
@@ -1031,10 +1280,45 @@ function setStatus(message, chipLabel) {
 }
 
 function setTabInfo(tab) {
+  const previousPageUrl = state.pageUrl;
   state.tabId = tab.id;
   state.pageUrl = tab.url || '';
   state.pageTitle = tab.title || '';
   state.pageHost = hostFromUrl(tab.url) || 'Active tab';
+  if (!isSamePageUrl(previousPageUrl, state.pageUrl)) {
+    state.downloadSettings.autoSubfolder = true;
+  }
+  updateSuggestedDestination();
+}
+
+function updateSuggestedDestination() {
+  if (!state.downloadSettings.autoSubfolder && state.downloadSettings.subfolder) {
+    return;
+  }
+
+  state.downloadSettings.subfolder = DownloadUtils.buildSuggestedSubfolder(currentPageInfo());
+  state.downloadSettings.autoSubfolder = true;
+}
+
+function ensureDownloadDestination() {
+  state.downloadSettings.subfolder = DownloadUtils.sanitizeSubfolder(state.downloadSettings.subfolder);
+  if (!state.downloadSettings.subfolder) {
+    state.downloadSettings.autoSubfolder = true;
+    updateSuggestedDestination();
+  }
+}
+
+function currentPageInfo() {
+  return {
+    host: state.pageHost,
+    title: state.pageTitle,
+    url: state.pageUrl
+  };
+}
+
+function proposedFilename(candidate) {
+  const index = Math.max(0, state.candidates.indexOf(candidate));
+  return DownloadUtils.resolveFilename(candidate, index, currentPageInfo());
 }
 
 async function loadStateForTab(tabId) {
@@ -1067,11 +1351,7 @@ async function loadStateForTab(tabId) {
         ? savedState.filters.extensions
         : [...DEFAULT_FILTERS.extensions]
     },
-    progress: {
-      ...createDefaultState().progress,
-      ...(savedState.progress || {}),
-      active: false
-    },
+    progress: PopupState.normalizeProgress(savedState.progress),
     downloadSettings: {
       ...DEFAULT_DOWNLOAD_SETTINGS,
       ...(savedState.downloadSettings || {}),
@@ -1080,13 +1360,99 @@ async function loadStateForTab(tabId) {
     isScanning: false,
     isDownloading: false
   };
+  updateSuggestedDestination();
+  await reconcileRestoredDownloadSession();
   deselectCandidatesBelowMinimum();
-  setStatus(
-    state.candidates.length
-      ? `Restored ${state.candidates.length} media candidates.`
-      : 'Scan the active tab to collect media candidates.',
-    'Ready'
-  );
+  if (!state.progress.active && state.progress.phase !== 'aborted') {
+    setStatus(
+      state.candidates.length
+        ? `Restored ${state.candidates.length} media candidates.`
+        : 'Scan the active tab to collect media candidates.',
+      'Ready'
+    );
+  }
+}
+
+function applyTerminalSummary(summary) {
+  (summary.completedItemIds || []).forEach((itemId) => recordItemOutcome(itemId, 'completed'));
+  (summary.failedItemIds || []).forEach((itemId) => recordItemOutcome(itemId, 'failed'));
+  (summary.cancelledItemIds || []).forEach((itemId) => recordItemOutcome(itemId, 'cancelled'));
+}
+
+function recordItemOutcome(itemId, outcome) {
+  PopupState.recordOutcome(state.progress, itemId, outcome);
+}
+
+function remainingProgressItemIds() {
+  return PopupState.remainingItemIds(state.progress);
+}
+
+async function reconcileRestoredDownloadSession() {
+  const sessionId = state.progress.sessionId;
+  const activePhase = ['preparing', 'downloading', 'aborting'].includes(state.progress.phase);
+  if (!sessionId || (!state.progress.active && !activePhase)) {
+    return;
+  }
+
+  try {
+    const status = await getBackgroundDownloadSessionStatus(sessionId);
+    applyTerminalSummary(status);
+    if (status.active) {
+      state.progress.active = true;
+      state.progress.phase = status.status === 'preparing' ? 'preparing' : 'downloading';
+      state.isDownloading = true;
+      setStatus('Download batch is still running.', 'Downloading');
+      return;
+    }
+
+    state.progress.active = false;
+    state.isDownloading = false;
+    if (status.status === 'aborted') {
+      state.progress.phase = 'aborted';
+      remainingProgressItemIds().forEach((itemId) => recordItemOutcome(itemId, 'cancelled'));
+      setStatus(`Batch aborted. ${state.progress.done} completed before it stopped.`, 'Aborted');
+      return;
+    }
+
+    if (['completed', 'completed-with-errors'].includes(status.status)) {
+      remainingProgressItemIds().forEach((itemId) => recordItemOutcome(itemId, 'failed'));
+      state.progress.phase = status.status;
+      setStatus(
+        status.status === 'completed'
+          ? 'All selected downloads completed.'
+          : `Finished with ${state.progress.failed} failed downloads.`,
+        status.status === 'completed' ? 'Ready' : 'Warning'
+      );
+      return;
+    }
+
+    if (state.progress.phase === 'preparing') {
+      await cancelPageFetchesInTab(sessionId);
+    }
+    state.progress.phase = 'interrupted';
+    setStatus('The previous download session is no longer active.', 'Warning');
+  } catch (error) {
+    state.progress.active = false;
+    state.progress.phase = 'interrupted';
+    state.isDownloading = false;
+    setStatus('Could not restore the previous download session.', 'Warning');
+  }
+}
+
+function getBackgroundDownloadSessionStatus(sessionId) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { action: 'getDownloadSessionStatus', sessionId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        resolve(response || { active: false, status: 'inactive' });
+      }
+    );
+  });
 }
 
 function deselectCandidatesBelowMinimum() {
@@ -1458,8 +1824,34 @@ function collectMediaCandidates() {
   }
 
   function filenameFromText(text) {
-    const match = String(text || '').match(/Name:\s*([^\n\r]+)/i);
-    return match ? match[1].trim() : '';
+    const value = String(text || '');
+    const namedMatch = value.match(/(?:Name|Filename|File)\s*:\s*([^\n\r]+)/i);
+    if (namedMatch) {
+      return namedMatch[1].trim();
+    }
+
+    const mediaMatch = value.match(/([^/\\\n\r<>:"|?*]+\.(?:jpe?g|png|gif|webp|svg|webm|mp4))\b/i);
+    return mediaMatch ? mediaMatch[1].trim() : '';
+  }
+
+  function filenameHintsForElement(element, anchor = null) {
+    const explicitValues = [
+      anchor?.getAttribute?.('download'),
+      element?.dataset?.filename,
+      element?.dataset?.fileName,
+      element?.dataset?.originalFilename
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const descriptiveValues = [
+      element?.getAttribute?.('title'),
+      element?.getAttribute?.('alt'),
+      anchor?.getAttribute?.('title'),
+      anchor?.textContent
+    ];
+
+    return Array.from(new Set([
+      ...explicitValues,
+      ...descriptiveValues.map(filenameFromText).filter(Boolean)
+    ]));
   }
 
   function decodeFilename(value) {
@@ -1620,6 +2012,7 @@ function collectMediaCandidates() {
       extension: extension || type,
       source: input.source || 'page',
       filename: input.filename || '',
+      filenameHints: Array.isArray(input.filenameHints) ? input.filenameHints.filter(Boolean) : [],
       downloadMode: input.downloadMode || 'chrome',
       headers: Array.isArray(input.headers) ? input.headers : [],
       pageHost: pageUrl.host,
@@ -1649,6 +2042,10 @@ function collectMediaCandidates() {
     if (!existing.filename && candidate.filename) {
       existing.filename = candidate.filename;
     }
+    existing.filenameHints = Array.from(new Set([
+      ...(existing.filenameHints || []),
+      ...(candidate.filenameHints || [])
+    ]));
     if (
       candidate.source === 'linked original'
       || candidate.source === '4chan original'
@@ -1738,6 +2135,7 @@ function collectMediaCandidates() {
       type: 'image',
       extension,
       filename: decodeFilename(originalUrl.split('/').pop() || ''),
+      filenameHints: filenameHintsForElement(image, parentLink),
       downloadMode: 'chrome',
       source: 'pixiv original',
       width,
@@ -1760,6 +2158,7 @@ function collectMediaCandidates() {
       type: 'image',
       extension,
       filename,
+      filenameHints: filenameHintsForElement(image, parentLink),
       downloadMode: 'page',
       source: 'attachment original',
       width: dimensions.width,
@@ -1798,6 +2197,7 @@ function collectMediaCandidates() {
         type: 'image',
         extension,
         filename,
+        filenameHints: filenameHintsForElement(image, anchor),
         downloadMode: 'page',
         source: 'attachment original',
         width: dimensions.width,
@@ -1830,6 +2230,7 @@ function collectMediaCandidates() {
       type,
       source: '4chan original',
       filename,
+      filenameHints: filenameHintsForElement(thumbnail, fileLink),
       width: dimensions.width,
       height: dimensions.height
     });
@@ -1846,6 +2247,7 @@ function collectMediaCandidates() {
       url: image.currentSrc || image.src,
       type: 'image',
       source: 'image element',
+      filenameHints: filenameHintsForElement(image, image.closest?.('a[href]')),
       width,
       height
     });
@@ -1855,6 +2257,7 @@ function collectMediaCandidates() {
         url: srcsetUrl,
         type: 'image',
         source: 'srcset',
+        filenameHints: filenameHintsForElement(image, image.closest?.('a[href]')),
         width: null,
         height: null
       });
@@ -1866,6 +2269,7 @@ function collectMediaCandidates() {
       url: video.currentSrc || video.src,
       type: 'video',
       source: 'video element',
+      filenameHints: filenameHintsForElement(video, video.closest?.('a[href]')),
       width: video.videoWidth || null,
       height: video.videoHeight || null
     });
@@ -1875,6 +2279,7 @@ function collectMediaCandidates() {
         url: source.src,
         type: 'video',
         source: 'video source',
+        filenameHints: filenameHintsForElement(source, video.closest?.('a[href]')),
         width: video.videoWidth || null,
         height: video.videoHeight || null
       });
@@ -1899,6 +2304,7 @@ function collectMediaCandidates() {
       previewUrl: linkedImage ? linkedImage.currentSrc || linkedImage.src : href,
       type,
       source: linkedImage ? 'linked original' : 'direct link',
+      filenameHints: filenameHintsForElement(linkedImage, anchor),
       width: null,
       height: null
     });
@@ -1918,6 +2324,14 @@ async function fetchMediaFromPage(items, options = {}) {
   const pendingItems = [...items];
   const concurrency = Math.max(1, Math.min(Number(options.concurrency) || 1, pendingItems.length || 1));
   const timeoutMs = Math.max(5000, Number(options.timeoutMs) || 30000);
+  const sessionId = String(options.sessionId || 'page-fetch');
+  const registryKey = '__guidedMediaFetchControllers';
+  const registry = globalThis[registryKey] instanceof Map
+    ? globalThis[registryKey]
+    : new Map();
+  globalThis[registryKey] = registry;
+  const sessionControllers = registry.get(sessionId) || new Set();
+  registry.set(sessionId, sessionControllers);
 
   function blobToDataUrl(blob) {
     return new Promise((resolve, reject) => {
@@ -1971,6 +2385,7 @@ async function fetchMediaFromPage(items, options = {}) {
 
   async function fetchItem(item) {
     const controller = new AbortController();
+    sessionControllers.add(controller);
     const timeoutId = setTimeout(() => {
       controller.abort();
     }, timeoutMs);
@@ -1989,11 +2404,14 @@ async function fetchMediaFromPage(items, options = {}) {
 
       const blob = await response.blob();
       const dataUrl = await blobToDataUrl(blob);
-      const filename = filenameFromContentDisposition(response.headers.get('Content-Disposition')) || item.filename;
+      const responseFilename = filenameFromContentDisposition(response.headers.get('Content-Disposition'));
+      const filename = responseFilename || item.filename;
       fetchedItems.push({
         id: item.id,
         url: dataUrl,
         filename,
+        responseFilename,
+        finalUrl: response.url || item.url,
         extension: extensionFromMimeType(blob.type) || item.extension,
         type: item.type
       });
@@ -2007,6 +2425,7 @@ async function fetchMediaFromPage(items, options = {}) {
       });
     } finally {
       clearTimeout(timeoutId);
+      sessionControllers.delete(controller);
     }
   }
 
@@ -2019,5 +2438,22 @@ async function fetchMediaFromPage(items, options = {}) {
 
   await Promise.all(Array.from({ length: concurrency }, worker));
 
+  if (!sessionControllers.size) {
+    registry.delete(sessionId);
+  }
+
   return { items: fetchedItems, failed };
+}
+
+function cancelPageFetchSession(sessionId) {
+  const registry = globalThis.__guidedMediaFetchControllers;
+  const controllers = registry instanceof Map ? registry.get(String(sessionId || '')) : null;
+  if (!controllers) {
+    return { cancelled: 0 };
+  }
+
+  const count = controllers.size;
+  controllers.forEach((controller) => controller.abort());
+  registry.delete(String(sessionId || ''));
+  return { cancelled: count };
 }

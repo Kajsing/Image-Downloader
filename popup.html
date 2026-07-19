@@ -9,117 +9,113 @@
 <body>
   <main class="app-shell">
     <header class="app-header">
-      <div>
+      <div class="brand-block">
         <h1>Image Downloader</h1>
         <p id="pageHost" class="host-label">Active tab</p>
       </div>
-      <span id="tabStatus" class="status-chip">Ready</span>
+      <div class="header-actions">
+        <span id="tabStatus" class="status-chip">Ready</span>
+        <button id="scanBtn" class="scan-action" type="button">Scan</button>
+      </div>
+      <p id="statusText" class="status-text" aria-live="polite">Ready to scan.</p>
     </header>
 
-    <section class="scan-panel" aria-label="Scan controls">
-      <button id="scanBtn" class="primary-action" type="button">Scan page</button>
-      <p id="statusText" class="status-text">Scan the active tab to collect media candidates.</p>
+    <section class="control-band" aria-label="Media controls">
+      <div class="toolbar-row">
+        <div class="segmented" aria-label="Media type">
+          <button class="segment is-active" type="button" data-type-filter="all">All <strong id="totalCount">0</strong></button>
+          <button class="segment" type="button" data-type-filter="image">Images <strong id="imageCount">0</strong></button>
+          <button class="segment" type="button" data-type-filter="video">Videos <strong id="videoCount">0</strong></button>
+        </div>
+        <button id="filterToggleBtn" class="tool-action" type="button" aria-expanded="false" aria-controls="filterPanel">Filters</button>
+      </div>
+
+      <div id="filterPanel" class="filters" aria-label="Filters" hidden>
+        <div id="extensionFilters" class="chip-row" aria-label="File types"></div>
+        <div class="filter-row">
+          <label class="select-label" for="minDimension">
+            <span>Minimum size</span>
+            <select id="minDimension">
+              <option value="0">Any size</option>
+              <option value="65">Min 65px</option>
+              <option value="720">Min 720px</option>
+              <option value="1080">Min 1080px</option>
+              <option value="1440">Min 1440px</option>
+            </select>
+          </label>
+          <label class="toggle-row">
+            <span>Same-origin only</span>
+            <input id="sameOriginOnly" type="checkbox">
+          </label>
+          <button id="resetFiltersBtn" class="secondary-action" type="button">Reset</button>
+        </div>
+      </div>
+
+      <div class="selection-toolbar" aria-label="Selection actions">
+        <button id="selectLikelyBtn" class="secondary-action emphasized" type="button">Likely</button>
+        <button id="selectAllBtn" class="link-action" type="button">Select visible</button>
+        <button id="selectNoneBtn" class="link-action" type="button">Clear</button>
+        <button id="ignoreSelectedBtn" class="link-action quiet" type="button">Ignore</button>
+        <button id="clearIgnoresBtn" class="link-action quiet" type="button">Restore ignores</button>
+        <span id="ignoredCount" class="ignored-count">0 ignored</span>
+        <span id="visibleCount" class="visible-count">0 visible</span>
+      </div>
     </section>
 
-    <section class="summary-grid" aria-label="Scan summary">
-      <div>
-        <strong id="totalCount">0</strong>
-        <span>media</span>
-      </div>
-      <div>
-        <strong id="imageCount">0</strong>
-        <span>images</span>
-      </div>
-      <div>
-        <strong id="videoCount">0</strong>
-        <span>videos</span>
-      </div>
+    <section class="results-shell" aria-label="Media results">
+      <div id="emptyState" class="empty-state">No media scanned yet.</div>
+      <div id="resultsList" class="results-list"></div>
     </section>
 
-    <section class="filters" aria-label="Filters">
-      <div class="segmented" aria-label="Media type">
-        <button class="segment is-active" type="button" data-type-filter="all">All</button>
-        <button class="segment" type="button" data-type-filter="image">Images</button>
-        <button class="segment" type="button" data-type-filter="video">Videos</button>
-      </div>
-
-      <label class="toggle-row">
-        <span>Same-origin only</span>
-        <input id="sameOriginOnly" type="checkbox">
+    <footer class="download-footer">
+      <label class="destination-editor" for="destinationFolder">
+        <span>Destination</span>
+        <span class="destination-input-wrap">
+          <span>ImageDownloader/</span>
+          <input id="destinationFolder" type="text" autocomplete="off" spellcheck="false">
+        </span>
       </label>
 
-      <div id="extensionFilters" class="chip-row" aria-label="File types"></div>
+      <div id="confirmationPanel" class="confirmation-panel" hidden>
+        <strong id="confirmationText">Start this batch?</strong>
+        <div class="confirmation-actions">
+          <button id="cancelConfirmBtn" class="secondary-action" type="button">Back</button>
+          <button id="confirmDownloadBtn" class="confirm-action" type="button">Start downloads</button>
+        </div>
+      </div>
 
-      <div class="filter-row">
-        <label class="select-label" for="minDimension">
-          <span>Minimum size</span>
-          <select id="minDimension">
-            <option value="0">Any size</option>
-            <option value="65">Min 65px</option>
-            <option value="720">Min 720px</option>
-            <option value="1080">Min 1080px</option>
-            <option value="1440">Min 1440px</option>
-          </select>
-        </label>
-        <label class="select-label" for="downloadSpeed">
-          <span>Download speed</span>
+      <div class="batch-summary">
+        <div class="selection-count">
+          <strong id="selectedCount">0 selected</strong>
+          <button id="clearSelectionBtn" class="link-action" type="button">Clear</button>
+        </div>
+        <label class="speed-control" for="downloadSpeed">
+          <span>Speed</span>
           <select id="downloadSpeed">
             <option value="conservative">Careful</option>
             <option value="normal">Balanced</option>
             <option value="fast">Fast</option>
           </select>
         </label>
-        <button id="resetFiltersBtn" class="secondary-action" type="button">Reset filters</button>
       </div>
-    </section>
 
-    <section class="bulk-panel" aria-label="Selection helpers">
-      <div>
-        <h2>Select likely wallpapers</h2>
-        <p>Choose high-resolution images and videos from the current results.</p>
+      <div class="progress-line">
+        <div class="progress-track" aria-hidden="true"><div id="progressBar" class="progress-bar"></div></div>
+        <span id="progressPercent">0%</span>
       </div>
-      <button id="selectLikelyBtn" class="secondary-action emphasized" type="button">Select likely</button>
-    </section>
-
-    <section class="selection-actions" aria-label="Selection actions">
-      <button id="selectAllBtn" class="link-action" type="button">Select visible</button>
-      <button id="selectNoneBtn" class="link-action" type="button">Clear visible</button>
-      <button id="ignoreSelectedBtn" class="link-action" type="button">Ignore selected</button>
-      <button id="clearIgnoresBtn" class="link-action" type="button">Clear ignores</button>
-      <span id="ignoredCount">0 ignored</span>
-      <span id="visibleCount">0 visible</span>
-    </section>
-
-    <section class="results-shell" aria-label="Media results">
-      <div id="emptyState" class="empty-state">
-        No media scanned yet.
+      <div class="download-stats">
+        <span>Queued <strong id="queuedCount">0</strong></span>
+        <span>Done <strong id="doneCount">0</strong></span>
+        <span>Failed <strong id="failedCount">0</strong></span>
+        <span>Cancelled <strong id="cancelledCount">0</strong></span>
       </div>
-      <div id="resultsList" class="results-list"></div>
-    </section>
-
-    <footer class="download-footer">
-      <div class="footer-status">
-        <div class="selection-count">
-          <strong id="selectedCount">0 selected</strong>
-          <button id="clearSelectionBtn" class="link-action" type="button">Clear</button>
-        </div>
-        <div class="progress-line">
-          <div class="progress-track" aria-hidden="true">
-            <div id="progressBar" class="progress-bar"></div>
-          </div>
-          <span id="progressPercent">0%</span>
-        </div>
-        <div class="download-stats">
-          <span>Queued <strong id="queuedCount">0</strong></span>
-          <span>Done <strong id="doneCount">0</strong></span>
-          <span>Failed <strong id="failedCount">0</strong></span>
-        </div>
-        <p id="latestError" class="latest-error" hidden></p>
-      </div>
-      <button id="downloadBtn" class="download-action" type="button" disabled>Download selected</button>
+      <p id="latestError" class="latest-error" hidden></p>
+      <button id="downloadBtn" class="download-action" type="button" disabled>Select files</button>
     </footer>
   </main>
 
+  <script src="download-utils.js"></script>
+  <script src="popup-state.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

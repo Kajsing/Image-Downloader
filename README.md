@@ -40,9 +40,19 @@ download only the selected media.
 - Selection helpers for visible results and likely wallpapers.
 - Per-tab state stored in `chrome.storage.local`, restored only when the current
   page URL still matches the saved scan.
-- Selected downloads are saved under `ImageDownloader/{host}_{date}/`.
-- Download progress reports queued, completed, and failed items while the popup
-  is open.
+- Suggests a stable page/thread-specific subfolder for each batch and lets the
+  user edit it before download. All paths remain below `ImageDownloader/`.
+- Resolves filenames from response headers, attachment and DOM metadata, final
+  or original URLs, then a stable page-based fallback. Duplicate names are
+  resolved before Chrome's final conflict handling.
+- Shows proposed filenames and the destination before download.
+- Requires an inline confirmation before batches of 50 or more files start.
+- Provides a prominent Abort action that clears pending work, stops retries,
+  aborts forum and Pixiv fetches, and cancels active Chrome downloads when
+  possible. Completed files remain on disk.
+- Download progress reports queued, completed, failed, and cancelled items.
+- Keeps lightweight active-session metadata in `chrome.storage.session`, so a
+  reopened popup can rediscover or safely reconcile background downloads.
 - Adaptive download speed modes. Fast mode starts with more parallel downloads,
   then retries slower when downloads time out or are interrupted.
 
@@ -60,9 +70,10 @@ download only the selected media.
 2. Open the Image Downloader extension.
 3. Click Scan page.
 4. Use filters or Select likely to refine the result set.
-5. Pick a download speed if needed: Careful, Balanced, or Fast.
-6. Select the media you want.
-7. Click Download selected.
+5. Select the media you want and check the proposed filenames.
+6. Review or edit the destination subfolder and choose a speed.
+7. Click Download. Batches of 50 or more require one inline confirmation.
+8. Use Abort batch to stop pending and active work when needed.
 
 ## Permissions
 
@@ -85,8 +96,14 @@ PATH:
 ```powershell
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check popup.js
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check background.js
+& 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check download-utils.js
+& 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check popup-state.js
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest.json OK')"
+& 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests/*.test.js
 ```
 
-The scanner also has a lightweight Node smoke test using a fake DOM. A full
-browser smoke test should be done by loading the extension unpacked in Chrome.
+The Node suite covers cancellation races, worker restart reconciliation,
+filename and folder resolution, duplicate handling, and the popup's DOM
+contract. A full browser smoke test should still be done by loading the
+extension unpacked in Chrome and checking direct media, forum attachments,
+Pixiv, a 200+ item Abort, and narrow popup layout.

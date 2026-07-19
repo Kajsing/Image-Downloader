@@ -14,6 +14,11 @@ design reference while building the popup. Treat it as direction, not a
 pixel-perfect spec: compact tool UI, scan summary, filters, selectable media
 previews, a "Select likely wallpapers" action, and selected-download progress.
 
+The v2.1 redesign is captured in
+`docs/mockups/safer-batch-downloads-v2.html`. It replaces the old two-column
+cards with compact filename-first rows and adds destination, confirmation, and
+Abort states.
+
 ## Non-Goals
 
 - No backend service.
@@ -127,7 +132,7 @@ accounts, telemetry, broad host permissions, or multi-page crawling.
 
 ## Milestone 6: Abortable Download Sessions
 
-Status: planned
+Status: complete
 
 - Add an explicit session state: preparing, downloading, aborting, completed,
   completed-with-errors, and aborted.
@@ -156,7 +161,7 @@ Done when:
 
 ## Milestone 7: Destinations And Reliable Filenames
 
-Status: planned
+Status: complete
 
 - Add per-batch destination settings with a visible path preview.
 - Default to a page/thread folder derived from host plus the most useful stable
@@ -195,7 +200,7 @@ Done when:
 
 ## Milestone 8: Popup UI Rethink
 
-Status: planned
+Status: in progress
 
 - Create and save a new compact mockup before implementation, using the current
   working extension as the functional baseline.
@@ -227,7 +232,7 @@ Done when:
 
 ## Milestone 9: Tests, Migration, And Release
 
-Status: planned
+Status: in progress
 
 - Add focused tests for folder sanitizing, filename source priority, generated
   fallback names, duplicate resolution, and cancellation state transitions.
@@ -264,7 +269,10 @@ Use the bundled Codex Node runtime if `node` is unavailable:
 ```powershell
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check popup.js
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check background.js
+& 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check download-utils.js
+& 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check popup-state.js
 & 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest.json OK')"
+& 'C:\Users\ckajs\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests/*.test.js
 ```
 
 ## Stop Conditions

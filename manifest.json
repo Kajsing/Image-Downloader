@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Image Downloader",
-    "version": "2.0",
+    "version": "2.1",
     "description": "Guided media collector for scanning, filtering, selecting, and downloading images and videos from the active page.",
     "permissions": [
       "activeTab",
