@@ -193,8 +193,6 @@ suffixes before Chrome's `uniquify` behavior remains as the last safety net.
 
 ## Known Current Issues
 
-- A full manual Chrome smoke test should still be run after loading the
-  extension unpacked.
 - A page-session attachment batch is owned by the injected page context while it
   is being prepared. Abort signals its registered controllers; if the page or
   popup disappears first, the batch is reconciled as interrupted and is never
@@ -205,6 +203,9 @@ suffixes before Chrome's `uniquify` behavior remains as the last safety net.
   Chrome instead of accumulating in the recoverable queue.
 - Chrome's downloads UI remains the final source of truth for files that finish
   exactly while the extension worker is being terminated.
+- Retry starts a new download session containing only failed or cancelled
+  candidates. The selection is correct, but the transition can visually resemble
+  restarting the entire previous batch and may benefit from clearer copy later.
 
 ## Stabilization Notes
 
