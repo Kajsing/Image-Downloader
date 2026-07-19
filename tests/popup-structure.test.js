@@ -38,3 +38,9 @@ test('large-batch confirmation and abort controls are present', () => {
   assert.match(popupStateJs, /LARGE_BATCH_CONFIRMATION_THRESHOLD = 50/);
   assert.match(popupJs, /cancelDownloadSession/);
 });
+
+test('the popup stays below Chromes 600px extension-popup height limit', () => {
+  const popupCss = fs.readFileSync(path.join(__dirname, '..', 'popup.css'), 'utf8');
+  assert.match(popupCss, /height:\s*min\(590px,\s*100vh\)/);
+  assert.match(popupCss, /grid-template-rows:\s*auto\s+auto\s+minmax\(0,\s*1fr\)\s+auto/);
+});

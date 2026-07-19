@@ -200,7 +200,7 @@ Done when:
 
 ## Milestone 8: Popup UI Rethink
 
-Status: in progress (implementation complete; unpacked Chrome layout matrix pending)
+Status: in progress (initial layout passed; action-footer re-test pending after fix)
 
 - Create and save a new compact mockup before implementation, using the current
   working extension as the functional baseline.
@@ -232,7 +232,7 @@ Done when:
 
 ## Milestone 9: Tests, Migration, And Release
 
-Status: in progress (automated checks and documentation complete; unpacked Chrome matrix pending)
+Status: in progress (initial Chrome matrix run; three focused re-tests pending after fixes)
 
 - Add focused tests for folder sanitizing, filename source priority, generated
   fallback names, duplicate resolution, and cancellation state transitions.

@@ -306,14 +306,31 @@ function startPximgDownload(session, item) {
     session.fetchControllers.set(item.id, controller);
 
     try {
-      const dataUrl = await fetchPximgDataUrl(item.url, session.profile.timeoutMs, controller);
+      const fetched = await fetchPximgDownload(item, session.profile.timeoutMs, controller);
       session.fetchControllers.delete(item.id);
       if (session.stopped) {
         return;
       }
 
-      startDownloadRequest(session, item, {
-        url: dataUrl,
+      const resolvedItem = {
+        ...item,
+        url: fetched.finalUrl,
+        finalUrl: fetched.finalUrl,
+        extension: extensionFromMimeType(fetched.mimeType)
+          || extensionFromUrl(fetched.finalUrl)
+          || item.extension
+      };
+      if (fetched.usedFallback) {
+        sendDownloadProgress({
+          sessionId: session.id,
+          itemId: item.id,
+          status: 'fallback',
+          message: 'Pixiv original was unavailable; using the best available image.'
+        });
+      }
+
+      startDownloadRequest(session, resolvedItem, {
+        url: fetched.dataUrl,
         headers: [],
         sendStarted: false
       });
@@ -325,7 +342,12 @@ function startPximgDownload(session, item) {
       }
 
       markSessionDownloadFinished(session.id, false);
-      retryOrFailDownload(session.id, item, error.message || 'Could not fetch Pixiv image.');
+      retryOrFailDownload(
+        session.id,
+        item,
+        error.message || 'Could not fetch Pixiv image.',
+        { retry: error.status !== 404 }
+      );
     }
   });
 }
@@ -406,6 +428,36 @@ function startDownloadRequest(session, item, options = {}) {
 }
 
 async function fetchPximgDataUrl(url, timeoutMs, suppliedController = null) {
+  const result = await fetchPximgResource(url, timeoutMs, suppliedController);
+  return result.dataUrl;
+}
+
+async function fetchPximgDownload(item, timeoutMs, controller) {
+  const urls = Array.from(new Set([
+    item.url,
+    ...(Array.isArray(item.fallbackUrls) ? item.fallbackUrls : [])
+  ])).filter(isPximgUrl);
+  let lastError = new Error('No valid Pixiv image URL was available.');
+
+  for (let index = 0; index < urls.length; index += 1) {
+    try {
+      const result = await fetchPximgResource(urls[index], timeoutMs, controller);
+      return {
+        ...result,
+        usedFallback: index > 0
+      };
+    } catch (error) {
+      lastError = error;
+      if (error.status !== 404 || controller.signal.aborted) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function fetchPximgResource(url, timeoutMs, suppliedController = null) {
   const controller = suppliedController || new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();
@@ -419,7 +471,9 @@ async function fetchPximgDataUrl(url, timeoutMs, suppliedController = null) {
     });
 
     if (!response.ok) {
-      throw new Error(`Pixiv fetch HTTP ${response.status}`);
+      const error = new Error(`Pixiv fetch HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
     }
 
     const contentType = String(response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
@@ -429,7 +483,11 @@ async function fetchPximgDataUrl(url, timeoutMs, suppliedController = null) {
 
     const arrayBuffer = await response.arrayBuffer();
     const mimeType = contentType || mimeTypeFromUrl(url) || 'application/octet-stream';
-    return `data:${mimeType};base64,${arrayBufferToBase64(arrayBuffer)}`;
+    return {
+      dataUrl: `data:${mimeType};base64,${arrayBufferToBase64(arrayBuffer)}`,
+      finalUrl: response.url || url,
+      mimeType
+    };
   } catch (error) {
     if (error.name === 'AbortError') {
       throw new Error('Pixiv fetch timed out.');
@@ -465,6 +523,17 @@ function mimeTypeFromUrl(url) {
   };
 
   return mimeTypes[extension] || '';
+}
+
+function extensionFromMimeType(mimeType) {
+  const extensions = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg'
+  };
+  return extensions[String(mimeType || '').split(';')[0].trim().toLowerCase()] || '';
 }
 
 function ensurePximgRefererRule(referer, callback) {
@@ -831,7 +900,7 @@ function findDownload(downloadId) {
   });
 }
 
-function retryOrFailDownload(sessionId, item, error) {
+function retryOrFailDownload(sessionId, item, error, options = {}) {
   const session = downloadSessions.get(sessionId);
   if (!session || session.stopped) {
     sendDownloadProgress({
@@ -843,9 +912,11 @@ function retryOrFailDownload(sessionId, item, error) {
     return;
   }
 
-  throttleSession(session, error);
+  if (options.retry !== false) {
+    throttleSession(session, error);
+  }
 
-  if (item.attempts <= session.profile.maxRetries) {
+  if (options.retry !== false && item.attempts <= session.profile.maxRetries) {
     session.pending.unshift(item);
     sendDownloadProgress({
       sessionId,

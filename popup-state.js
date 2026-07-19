@@ -68,6 +68,13 @@
     return (progress.itemIds || []).filter((itemId) => !terminalIds.has(itemId));
   }
 
+  function retryableItemIds(progress) {
+    return Array.from(new Set([
+      ...(progress.failedItemIds || []),
+      ...(progress.cancelledItemIds || [])
+    ]));
+  }
+
   function needsLargeBatchConfirmation(count) {
     return Number(count) >= LARGE_BATCH_CONFIRMATION_THRESHOLD;
   }
@@ -82,7 +89,8 @@
     normalizeDownloadSettings,
     normalizeProgress,
     recordOutcome,
-    remainingItemIds
+    remainingItemIds,
+    retryableItemIds
   };
 
   root.PopupState = api;

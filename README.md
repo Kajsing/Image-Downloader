@@ -19,6 +19,9 @@ download only the selected media.
 - Fetches pximg originals in the extension background with a narrow request rule
   that supplies the current Pixiv artwork page as the referer expected by
   `i.pximg.net`, then saves the fetched image bytes through Chrome downloads.
+- When a Pixiv recommendation exposes only a JPG master preview, tries common
+  original formats after a 404 and uses the known master preview as the final
+  non-failing fallback.
 - Uses visible-tab snapshot crops for pximg previews that cannot be loaded
   directly inside the extension popup, with an on-demand background fetch
   fallback for offscreen pximg thumbnails.
@@ -50,6 +53,8 @@ download only the selected media.
 - Provides a prominent Abort action that clears pending work, stops retries,
   aborts forum and Pixiv fetches, and cancels active Chrome downloads when
   possible. Completed files remain on disk.
+- After an aborted or partially failed batch, deselects completed files and
+  offers a retry containing only failed and cancelled items.
 - Download progress reports queued, completed, failed, and cancelled items.
 - Keeps lightweight active-session metadata in `chrome.storage.session`, so a
   reopened popup can rediscover or safely reconcile background downloads.

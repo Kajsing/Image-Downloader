@@ -118,3 +118,110 @@ test('stored destinations are sanitized before they are shown again', () => {
   assert.equal(settings.subfolder, 'forum/thread-42');
   assert.equal(settings.autoSubfolder, false);
 });
+
+test('terminal batches deselect completed files and retain only retryable files', () => {
+  const context = createPopupContext();
+  context.__fixture = [
+    { id: 'done', selected: true },
+    { id: 'failed', selected: true },
+    { id: 'cancelled', selected: true },
+    { id: 'unrelated', selected: true }
+  ];
+  evaluate(context, `
+    state.candidates = __fixture;
+    state.progress = PopupState.normalizeProgress({
+      phase: 'aborted',
+      itemIds: ['done', 'failed', 'cancelled'],
+      completedItemIds: ['done'],
+      failedItemIds: ['failed'],
+      cancelledItemIds: ['cancelled']
+    });
+    syncTerminalSelection();
+  `);
+
+  assert.deepEqual(
+    Array.from(evaluate(context, 'state.candidates.filter((item) => item.selected).map((item) => item.id)')),
+    ['failed', 'cancelled', 'unrelated']
+  );
+  assert.equal(evaluate(
+    context,
+    "isRetrySelection(state.candidates.filter((item) => ['failed', 'cancelled'].includes(item.id)))"
+  ), true);
+  assert.equal(evaluate(
+    context,
+    "isRetrySelection(state.candidates.filter((item) => ['failed', 'unrelated'].includes(item.id)))"
+  ), false);
+});
+
+test('the terminal state remains aborted and exposes only cancelled files for retry', () => {
+  const context = createPopupContext();
+  context.__fixture = [
+    { id: 'done', selected: true },
+    { id: 'cancelled', selected: true }
+  ];
+  evaluate(context, `
+    state.candidates = __fixture;
+    state.progress = PopupState.normalizeProgress({
+      queued: 2,
+      done: 1,
+      cancelled: 1,
+      active: true,
+      phase: 'downloading',
+      latestError: 'Old retry warning',
+      itemIds: ['done', 'cancelled'],
+      completedItemIds: ['done'],
+      cancelledItemIds: ['cancelled']
+    });
+    finishDownloadSessionIfDone();
+  `);
+
+  assert.equal(evaluate(context, 'state.progress.phase'), 'aborted');
+  assert.equal(evaluate(context, 'state.statusLabel'), 'Aborted');
+  assert.equal(evaluate(context, 'state.progress.latestError'), '');
+  assert.deepEqual(
+    Array.from(evaluate(context, 'state.candidates.filter((item) => item.selected).map((item) => item.id)')),
+    ['cancelled']
+  );
+});
+
+test('a fully successful batch clears its completed selection', () => {
+  const context = createPopupContext();
+  context.__fixture = [{ id: 'done', selected: true }];
+  evaluate(context, `
+    state.candidates = __fixture;
+    state.progress = PopupState.normalizeProgress({
+      queued: 1,
+      done: 1,
+      active: true,
+      phase: 'downloading',
+      itemIds: ['done'],
+      completedItemIds: ['done']
+    });
+    finishDownloadSessionIfDone();
+  `);
+
+  assert.equal(evaluate(context, 'state.progress.phase'), 'completed');
+  assert.equal(evaluate(context, 'state.candidates[0].selected'), false);
+});
+
+test('Pixiv fallback sources are forwarded to the background worker', () => {
+  const context = createPopupContext();
+  context.__candidate = {
+    id: 'pixiv',
+    url: 'https://i.pximg.net/img-original/img/123_p0.jpg',
+    previewUrl: 'https://i.pximg.net/img-master/img/123_p0_master1200.jpg',
+    fallbackUrls: [
+      'https://i.pximg.net/img-original/img/123_p0.png',
+      'https://i.pximg.net/img-master/img/123_p0_master1200.jpg'
+    ],
+    filename: '123_p0.jpg',
+    filenameHints: [],
+    type: 'image',
+    extension: 'jpg'
+  };
+
+  assert.deepEqual(
+    Array.from(evaluate(context, 'toDownloadItem(__candidate).fallbackUrls')),
+    context.__candidate.fallbackUrls
+  );
+});

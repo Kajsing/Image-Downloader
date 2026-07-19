@@ -94,7 +94,7 @@ function createHarness(options = {}) {
     },
     chrome,
     clearTimeout,
-    fetch,
+    fetch: options.fetch || fetch,
     setTimeout(callback, delay) {
       if (options.pauseWorkerTimers) {
         return { unref() {} };
@@ -405,4 +405,135 @@ test('a new session starts normally after an aborted batch', async () => {
   assert.match(response.status, /1 downloads queued/);
   assert.equal(harness.downloadCalls.length, 2);
   assert.match(harness.downloadCalls[1].url, /second\.jpg$/);
+});
+
+test('Pixiv retries a missing inferred JPG as PNG and preserves the extension', async () => {
+  const fetchCalls = [];
+  const harness = createHarness({
+    fetch: async (url) => {
+      fetchCalls.push(url);
+      if (url.endsWith('.jpg')) {
+        return {
+          ok: false,
+          status: 404,
+          url,
+          headers: { get: () => '' }
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        url,
+        headers: {
+          get(name) {
+            return name.toLowerCase() === 'content-type' ? 'image/png' : '';
+          }
+        },
+        async arrayBuffer() {
+          return Uint8Array.from([1, 2, 3]).buffer;
+        }
+      };
+    }
+  });
+
+  await harness.sendMessage({
+    action: 'downloadSelectedMedia',
+    sessionId: 'download_pixiv_fallback',
+    page: { host: 'www.pixiv.net', url: 'https://www.pixiv.net/en/artworks/123' },
+    items: [{
+      ...mediaItem('pixiv'),
+      url: 'https://i.pximg.net/img-original/img/2026/01/01/00/00/00/123_p0.jpg',
+      filename: '123_p0.jpg',
+      fallbackUrls: [
+        'https://i.pximg.net/img-original/img/2026/01/01/00/00/00/123_p0.png'
+      ]
+    }]
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.deepEqual(fetchCalls.map((url) => url.slice(-4)), ['.jpg', '.png']);
+  assert.equal(harness.downloadCalls.length, 1);
+  assert.match(harness.downloadCalls[0].url, /^data:image\/png;base64,/);
+  assert.match(harness.downloadCalls[0].filename, /123_p0\.png$/);
+  assert.equal(
+    harness.runtimeMessages.some((message) => message.status === 'fallback'),
+    true
+  );
+});
+
+test('Pixiv uses the known preview after inferred original formats return 404', async () => {
+  const previewUrl = 'https://i.pximg.net/c/360x360_70/img-master/img/2026/01/01/00/00/00/456_p0_square1200.jpg';
+  const fetchCalls = [];
+  const harness = createHarness({
+    fetch: async (url) => {
+      fetchCalls.push(url);
+      const isPreview = url === previewUrl;
+      return {
+        ok: isPreview,
+        status: isPreview ? 200 : 404,
+        url,
+        headers: {
+          get(name) {
+            return isPreview && name.toLowerCase() === 'content-type' ? 'image/jpeg' : '';
+          }
+        },
+        async arrayBuffer() {
+          return Uint8Array.from([4, 5, 6]).buffer;
+        }
+      };
+    }
+  });
+
+  await harness.sendMessage({
+    action: 'downloadSelectedMedia',
+    sessionId: 'download_pixiv_preview_fallback',
+    page: { host: 'www.pixiv.net', url: 'https://www.pixiv.net/en/artworks/456' },
+    items: [{
+      ...mediaItem('pixiv-preview'),
+      url: 'https://i.pximg.net/img-original/img/2026/01/01/00/00/00/456_p0.jpg',
+      fallbackUrls: [
+        'https://i.pximg.net/img-original/img/2026/01/01/00/00/00/456_p0.png',
+        previewUrl
+      ]
+    }]
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(fetchCalls.at(-1), previewUrl);
+  assert.equal(harness.downloadCalls.length, 1);
+  assert.match(harness.downloadCalls[0].url, /^data:image\/jpeg;base64,/);
+});
+
+test('Pixiv does not retry after every known source returns 404', async () => {
+  let fetchCount = 0;
+  const harness = createHarness({
+    fetch: async (url) => {
+      fetchCount += 1;
+      return {
+        ok: false,
+        status: 404,
+        url,
+        headers: { get: () => '' }
+      };
+    }
+  });
+
+  await harness.sendMessage({
+    action: 'downloadSelectedMedia',
+    sessionId: 'download_pixiv_all_missing',
+    page: { host: 'www.pixiv.net', url: 'https://www.pixiv.net/en/artworks/789' },
+    items: [{
+      ...mediaItem('pixiv-missing'),
+      url: 'https://i.pximg.net/img-original/img/789_p0.jpg',
+      fallbackUrls: [
+        'https://i.pximg.net/img-original/img/789_p0.png',
+        'https://i.pximg.net/img-master/img/789_p0_master1200.jpg'
+      ]
+    }]
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(fetchCount, 3);
+  assert.equal(harness.runtimeMessages.some((message) => message.status === 'retry'), false);
+  assert.equal(harness.runtimeMessages.some((message) => message.status === 'failed'), true);
 });

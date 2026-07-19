@@ -51,6 +51,7 @@ test('terminal outcomes are idempotent and mutually exclusive', () => {
   assert.equal(progress.done, 0);
   assert.equal(progress.cancelled, 1);
   assert.deepEqual(PopupState.remainingItemIds(progress), ['b']);
+  assert.deepEqual(PopupState.retryableItemIds(progress), ['a']);
 });
 
 test('large batches require confirmation at the 50 item boundary', () => {

@@ -35,6 +35,8 @@ The popup is the command surface:
 - Confirms batches of 50 or more files before starting them.
 - Starts or aborts the current selected-download session.
 - Displays queued, completed, failed, cancelled, and latest-error status.
+- On a terminal batch, removes completed items from selection and retains only
+  failed/cancelled items for a precise retry.
 
 The popup is intentionally dense and practical. It should feel like a repeated
 use tool, not a marketing page.
@@ -56,6 +58,9 @@ Responsibilities:
   `img-original` links as original image records and download them through
   Chrome downloads while a narrow `declarativeNetRequest` rule supplies the
   Pixiv referer expected by `i.pximg.net`.
+- For inferred Pixiv originals, retain alternate original extensions and the
+  known master preview. The worker follows that fallback chain only after a 404
+  and derives the saved extension from the successful response.
 - Use visible-tab screenshot crops as popup previews for pximg images when the
   remote host refuses extension-popup image loads.
 - Keep original-media dimensions separate from thumbnail and snapshot preview
@@ -91,6 +96,7 @@ Each candidate uses this shape in popup state:
   source: string,
   filename: string,
   filenameHints: string[],
+  fallbackUrls: string[],
   downloadMode: "chrome" | "page",
   pageHost: string,
   sameOrigin: boolean,

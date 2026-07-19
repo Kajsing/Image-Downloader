@@ -272,6 +272,7 @@ function normalizeCandidate(candidate, index) {
     source: candidate.source || 'page',
     filename: candidate.filename || '',
     filenameHints: Array.isArray(candidate.filenameHints) ? candidate.filenameHints : [],
+    fallbackUrls: Array.isArray(candidate.fallbackUrls) ? candidate.fallbackUrls.filter(Boolean) : [],
     downloadMode: candidate.downloadMode || 'chrome',
     headers: Array.isArray(candidate.headers) ? candidate.headers : [],
     pageHost: candidate.pageHost || state.pageHost,
@@ -481,7 +482,9 @@ function renderFooter() {
   refs.downloadBtn.disabled = state.progress.phase === 'aborting' || (!state.progress.active && selected.length === 0);
   refs.downloadBtn.textContent = state.progress.active
     ? state.progress.phase === 'aborting' ? 'Aborting...' : 'Abort batch'
-    : selected.length ? `Download ${selected.length} files` : 'Select files';
+    : selected.length
+      ? `${isRetrySelection(selected) ? 'Retry' : 'Download'} ${selected.length} files`
+      : 'Select files';
   refs.downloadBtn.classList.toggle('is-abort', state.progress.active);
   refs.downloadBtn.hidden = confirmationOpen;
   refs.confirmationPanel.hidden = !confirmationOpen;
@@ -872,6 +875,8 @@ async function abortDownloadSession() {
   state.progress.active = false;
   state.progress.phase = 'aborted';
   state.isDownloading = false;
+  state.progress.latestError = '';
+  syncTerminalSelection();
   setStatus(
     `Batch aborted. ${state.progress.done} completed before it stopped.`,
     'Aborted'
@@ -951,6 +956,7 @@ function toDownloadItem(candidate) {
     extension: candidate.extension,
     filename: candidate.filename,
     filenameHints: candidate.filenameHints || [],
+    fallbackUrls: candidate.fallbackUrls || [],
     responseFilename: candidate.responseFilename || '',
     finalUrl: candidate.finalUrl || '',
     headers: downloadHeadersForCandidate(candidate)
@@ -1003,13 +1009,37 @@ function finishDownloadSessionIfDone() {
       ? 'aborted'
       : state.progress.failed ? 'completed-with-errors' : 'completed';
     state.isDownloading = false;
-    setStatus(
-      state.progress.failed
-        ? `Finished with ${state.progress.failed} failed downloads.`
-        : 'All selected downloads completed.',
-      state.progress.failed ? 'Warning' : 'Ready'
-    );
+    syncTerminalSelection();
+    if (state.progress.cancelled) {
+      state.progress.latestError = '';
+      setStatus(`Batch aborted. ${state.progress.done} completed before it stopped.`, 'Aborted');
+    } else if (state.progress.failed) {
+      setStatus(`Finished with ${state.progress.failed} failed downloads.`, 'Warning');
+    } else {
+      state.progress.latestError = '';
+      setStatus('All selected downloads completed.', 'Ready');
+    }
   }
+}
+
+function syncTerminalSelection() {
+  const sessionItemIds = new Set(state.progress.itemIds || []);
+  const retryableItemIds = new Set(PopupState.retryableItemIds(state.progress));
+  state.candidates.forEach((candidate) => {
+    if (sessionItemIds.has(candidate.id)) {
+      candidate.selected = retryableItemIds.has(candidate.id);
+    }
+  });
+}
+
+function isRetrySelection(selectedCandidates) {
+  if (!['aborted', 'completed-with-errors'].includes(state.progress.phase)) {
+    return false;
+  }
+
+  const retryableItemIds = new Set(PopupState.retryableItemIds(state.progress));
+  return selectedCandidates.length > 0
+    && selectedCandidates.every((candidate) => retryableItemIds.has(candidate.id));
 }
 
 function handleDownloadProgress(message) {
@@ -1032,6 +1062,8 @@ function handleDownloadProgress(message) {
     state.progress.active = false;
     state.progress.phase = 'aborted';
     state.isDownloading = false;
+    state.progress.latestError = '';
+    syncTerminalSelection();
     setStatus(`Batch aborted. ${state.progress.done} completed before it stopped.`, 'Aborted');
   }
 
@@ -1051,6 +1083,11 @@ function handleDownloadProgress(message) {
     state.progress.latestError = message.concurrency
       ? `Host is slow; throttled to ${message.concurrency} downloads at a time.`
       : 'Host is slow; throttled downloads.';
+    setStatus(state.progress.latestError, 'Downloading');
+  }
+
+  if (message.status === 'fallback') {
+    state.progress.latestError = message.message || 'Original unavailable; using the best available Pixiv image.';
     setStatus(state.progress.latestError, 'Downloading');
   }
 
@@ -1402,6 +1439,8 @@ async function reconcileRestoredDownloadSession() {
     if (status.status === 'aborted') {
       state.progress.phase = 'aborted';
       remainingProgressItemIds().forEach((itemId) => recordItemOutcome(itemId, 'cancelled'));
+      state.progress.latestError = '';
+      syncTerminalSelection();
       setStatus(`Batch aborted. ${state.progress.done} completed before it stopped.`, 'Aborted');
       return;
     }
@@ -1409,6 +1448,10 @@ async function reconcileRestoredDownloadSession() {
     if (['completed', 'completed-with-errors'].includes(status.status)) {
       remainingProgressItemIds().forEach((itemId) => recordItemOutcome(itemId, 'failed'));
       state.progress.phase = status.status;
+      if (status.status === 'completed') {
+        state.progress.latestError = '';
+      }
+      syncTerminalSelection();
       setStatus(
         status.status === 'completed'
           ? 'All selected downloads completed.'
@@ -1956,6 +1999,33 @@ function collectMediaCandidates() {
     }
   }
 
+  function pixivFallbackUrls(originalUrl, previewUrl, includeAlternateOriginals) {
+    const urls = [];
+    if (includeAlternateOriginals) {
+      try {
+        const parsed = new URL(originalUrl);
+        const extensionMatch = parsed.pathname.match(/\.([a-z0-9]+)$/i);
+        if (extensionMatch) {
+          ['jpg', 'png', 'gif', 'webp'].forEach((extension) => {
+            const alternate = new URL(parsed.href);
+            alternate.pathname = alternate.pathname.replace(/\.[a-z0-9]+$/i, `.${extension}`);
+            const candidate = alternate.href;
+            if (candidate !== originalUrl) {
+              urls.push(candidate);
+            }
+          });
+        }
+      } catch (error) {
+        // Keep the known preview as the final fallback.
+      }
+    }
+
+    if (previewUrl && previewUrl !== originalUrl) {
+      urls.push(previewUrl);
+    }
+    return Array.from(new Set(urls));
+  }
+
   function isAttachmentUrl(url) {
     const normalized = normalizeUrl(url);
     if (!normalized) {
@@ -2014,6 +2084,7 @@ function collectMediaCandidates() {
       source: input.source || 'page',
       filename: input.filename || '',
       filenameHints: Array.isArray(input.filenameHints) ? input.filenameHints.filter(Boolean) : [],
+      fallbackUrls: Array.isArray(input.fallbackUrls) ? input.fallbackUrls.filter(Boolean) : [],
       downloadMode: input.downloadMode || 'chrome',
       headers: Array.isArray(input.headers) ? input.headers : [],
       pageHost: pageUrl.host,
@@ -2046,6 +2117,10 @@ function collectMediaCandidates() {
     existing.filenameHints = Array.from(new Set([
       ...(existing.filenameHints || []),
       ...(candidate.filenameHints || [])
+    ]));
+    existing.fallbackUrls = Array.from(new Set([
+      ...(existing.fallbackUrls || []),
+      ...(candidate.fallbackUrls || [])
     ]));
     if (
       candidate.source === 'linked original'
@@ -2118,7 +2193,8 @@ function collectMediaCandidates() {
     const parentLink = image.closest ? image.closest('a[href]') : null;
     const linkedUrl = normalizeUrl(parentLink?.href);
     const previewUrl = normalizeUrl(image.currentSrc || image.src);
-    const originalUrl = isPixivMediaUrl(linkedUrl)
+    const hasLinkedPixivOriginal = isPixivMediaUrl(linkedUrl);
+    const originalUrl = hasLinkedPixivOriginal
       ? linkedUrl
       : pixivOriginalFromPreview(previewUrl);
 
@@ -2137,6 +2213,7 @@ function collectMediaCandidates() {
       extension,
       filename: decodeFilename(originalUrl.split('/').pop() || ''),
       filenameHints: filenameHintsForElement(image, parentLink),
+      fallbackUrls: pixivFallbackUrls(originalUrl, previewUrl, !hasLinkedPixivOriginal),
       downloadMode: 'chrome',
       source: 'pixiv original',
       width,
