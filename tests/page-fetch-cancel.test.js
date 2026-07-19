@@ -40,3 +40,21 @@ test('page fetch cancellation aborts every controller registered to the session'
   assert.deepEqual(aborted, ['one', 'two']);
   assert.equal(context.__guidedMediaFetchControllers.has('session-1'), false);
 });
+
+test('page previews are retrieved individually from the page registry', () => {
+  const readFunction = extractFunction(popupSource, 'readPagePreviewData');
+  const context = vm.createContext({});
+  vm.runInContext(`
+    globalThis.__guidedMediaPreviewData = new Map([
+      ['preview-1', 'data:image/jpeg;base64,one'],
+      ['preview-2', 'data:image/jpeg;base64,two']
+    ]);
+  `, context);
+  vm.runInContext(readFunction, context);
+
+  assert.equal(
+    vm.runInContext("readPagePreviewData('preview-2')", context),
+    'data:image/jpeg;base64,two'
+  );
+  assert.equal(vm.runInContext("readPagePreviewData('missing')", context), '');
+});

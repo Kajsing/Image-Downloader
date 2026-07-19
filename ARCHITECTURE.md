@@ -78,6 +78,11 @@ Responsibilities:
   batches for attachment endpoints that rely on page session or referer
   behavior, then append each prepared batch to Chrome downloads with
   `saveAs: false`.
+- Keep encoded same-page attachment previews in a bounded registry inside the
+  active page. The scan result contains only a small `pagePreviewKey`; the popup
+  retrieves one preview at a time after a remote thumbnail fails to render.
+  This keeps the `chrome.scripting.executeScript` result below Chrome's message
+  quota on large forum pages.
 - Dedupe candidates by normalized URL.
 
 The scanner does not crawl unrelated pages in the MVP.
@@ -91,6 +96,8 @@ Each candidate uses this shape in popup state:
   id: string,
   url: string,
   previewUrl: string,
+  previewSourceUrl: string,
+  pagePreviewKey: string,
   type: "image" | "video",
   extension: string,
   source: string,
@@ -122,6 +129,11 @@ State includes:
 - Download progress.
 - Last status message.
 - Download destination settings and per-item terminal outcome ledgers.
+
+Temporary `data:` and `blob:` preview URLs are stripped before persistence. At
+most eight recent per-tab scan states are retained, with the active tab always
+preserved. If a page is reloaded and its in-page preview registry disappears,
+the user can rescan to rebuild those authenticated attachment previews.
 
 A separate global ignore list is stored under `guided_media_ignore_list`.
 Ignored media is matched by stable fingerprints derived from canonical media URL

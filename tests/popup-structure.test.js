@@ -44,3 +44,11 @@ test('the popup stays below Chromes 600px extension-popup height limit', () => {
   assert.match(popupCss, /height:\s*min\(590px,\s*100vh\)/);
   assert.match(popupCss, /grid-template-rows:\s*auto\s+auto\s+minmax\(0,\s*1fr\)\s+auto/);
 });
+
+test('the scanner returns preview keys instead of inline thumbnail bytes', () => {
+  assert.match(popupJs, /__guidedMediaPreviewData/);
+  assert.match(popupJs, /pagePreviewKey:\s*registerThumbnailPreview\(image\)/);
+  assert.match(popupJs, /function readPagePreviewData\(/);
+  assert.doesNotMatch(popupJs, /previewUrl:\s*thumbnailDataUrl\(/);
+  assert.doesNotMatch(popupJs, /previewUrl:\s*image\s*\?\s*thumbnailDataUrl\(/);
+});

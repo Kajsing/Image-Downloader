@@ -232,7 +232,7 @@ Done when:
 
 ## Milestone 9: Tests, Migration, And Release
 
-Status: in progress (initial Chrome matrix run; three focused re-tests pending after fixes)
+Status: in progress (initial Chrome matrix run; focused re-tests pending after fixes)
 
 - Add focused tests for folder sanitizing, filename source priority, generated
   fallback names, duplicate resolution, and cancellation state transitions.
@@ -240,6 +240,9 @@ Status: in progress (initial Chrome matrix run; three focused re-tests pending a
   retry suppression, and late completion/interruption events.
 - Preserve existing saved candidates and filters. Add defaults for new
   destination and progress fields instead of invalidating old tab state.
+- Keep large scan results and saved candidate state below Chrome quotas by
+  excluding temporary preview bytes, retrieving authenticated previews on
+  demand, and pruning stale per-tab state.
 - Run manifest parsing and JavaScript syntax checks after each implementation
   slice.
 - Smoke-test unpacked Chrome flows for a direct-media page, 4chan-style thread,

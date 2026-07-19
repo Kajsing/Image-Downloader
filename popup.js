@@ -7,6 +7,7 @@ const EXTENSIONS = ['jpg', 'png', 'gif', 'webp', 'svg', 'webm', 'mp4'];
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
 const VIDEO_EXTENSIONS = new Set(['webm', 'mp4']);
 const PAGE_FETCH_TIMEOUT_MS = 30000;
+const MAX_SAVED_TAB_STATES = 8;
 const PAGE_FETCH_CONCURRENCY = {
   conservative: 1,
   normal: 2,
@@ -95,6 +96,11 @@ async function init() {
     setTabInfo(tab);
     await loadIgnoreList();
     await loadStateForTab(tab.id);
+    try {
+      await pruneStoredTabStates(storageKey(tab.id));
+    } catch (error) {
+      console.warn('Could not prune stale popup state:', error);
+    }
     applyIgnoreListToCandidates();
     render();
   } catch (error) {
@@ -267,6 +273,8 @@ function normalizeCandidate(candidate, index) {
     id: `media_${index}_${hashString(candidate.url || String(index))}`,
     url: candidate.url,
     previewUrl: candidate.previewUrl || candidate.url,
+    previewSourceUrl: candidate.previewUrl || candidate.url,
+    pagePreviewKey: candidate.pagePreviewKey || '',
     type: candidate.type,
     extension,
     source: candidate.source || 'page',
@@ -1176,6 +1184,28 @@ async function handleImagePreviewError(candidateId, image) {
     return;
   }
 
+  if (candidate.pagePreviewKey) {
+    candidate.previewFetchPending = true;
+    try {
+      const dataUrl = await fetchPagePreviewDataUrl(candidate.pagePreviewKey);
+      if (!dataUrl) {
+        throw new Error('Page preview is no longer available.');
+      }
+      candidate.previewUrl = dataUrl;
+      candidate.warning = '';
+      image.src = dataUrl;
+    } catch (error) {
+      markPreviewWarning(candidateId, error.message || 'Preview failed');
+    } finally {
+      delete candidate.previewFetchPending;
+    }
+
+    queuePersistState();
+    renderResults();
+    renderFooter();
+    return;
+  }
+
   if (!isPximgUrl(candidate.previewUrl)) {
     markPreviewWarning(candidateId, 'Preview failed');
     return;
@@ -1197,6 +1227,16 @@ async function handleImagePreviewError(candidateId, image) {
   queuePersistState();
   renderResults();
   renderFooter();
+}
+
+async function fetchPagePreviewDataUrl(previewKey) {
+  const results = await executeScriptWithArgs(state.tabId, readPagePreviewData, [previewKey]);
+  return results?.[0]?.result || '';
+}
+
+function readPagePreviewData(previewKey) {
+  const registry = globalThis.__guidedMediaPreviewData;
+  return registry instanceof Map ? registry.get(String(previewKey || '')) || '' : '';
 }
 
 function fetchPximgPreviewDataUrl(url) {
@@ -1377,6 +1417,7 @@ async function loadStateForTab(tabId) {
     ...savedState,
     tabId,
     ignoreList,
+    candidates: savedState.candidates.map(normalizeStoredCandidate),
     filters: {
       ...DEFAULT_FILTERS,
       ...(savedState.filters || {}),
@@ -1645,24 +1686,77 @@ function persistIgnoreList() {
   });
 }
 
-function persistState() {
+async function persistState() {
   if (!state.tabId) {
-    return Promise.resolve();
+    return;
   }
 
-  return storageSet({
-    [storageKey(state.tabId)]: {
+  const key = storageKey(state.tabId);
+  const value = {
+    [key]: {
       pageUrl: state.pageUrl,
       pageHost: state.pageHost,
       pageTitle: state.pageTitle,
-      candidates: state.candidates,
+      candidates: state.candidates.map(serializeCandidateForStorage),
       filters: state.filters,
       downloadSettings: state.downloadSettings,
       progress: state.progress,
       statusMessage: state.statusMessage,
-      statusLabel: state.statusLabel
+      statusLabel: state.statusLabel,
+      savedAt: Date.now()
     }
-  });
+  };
+
+  try {
+    await storageSet(value);
+  } catch (error) {
+    if (!/quota/i.test(error.message || '')) {
+      console.warn('Could not persist popup state:', error);
+      return;
+    }
+
+    try {
+      await pruneStoredTabStates(key, 1);
+    } catch (pruneError) {
+      console.warn('Could not prune stale popup state:', pruneError);
+    }
+    try {
+      await storageSet(value);
+    } catch (retryError) {
+      console.warn('Popup state still exceeds storage quota after pruning:', retryError);
+    }
+  }
+}
+
+function serializeCandidateForStorage(candidate) {
+  const stored = normalizeStoredCandidate(candidate);
+  delete stored.previewFetchPending;
+  return stored;
+}
+
+function normalizeStoredCandidate(candidate) {
+  const source = candidate && typeof candidate === 'object' ? candidate : {};
+  const previewSourceUrl = firstPersistentPreviewUrl(
+    source.previewSourceUrl,
+    source.previewUrl,
+    source.url
+  );
+  return {
+    ...source,
+    previewSourceUrl,
+    previewUrl: isEphemeralPreviewUrl(source.previewUrl)
+      ? previewSourceUrl
+      : source.previewUrl || previewSourceUrl,
+    pagePreviewKey: String(source.pagePreviewKey || '')
+  };
+}
+
+function firstPersistentPreviewUrl(...urls) {
+  return urls.find((url) => url && !isEphemeralPreviewUrl(url)) || '';
+}
+
+function isEphemeralPreviewUrl(url) {
+  return /^(?:data|blob):/i.test(String(url || ''));
 }
 
 function storageRemove(key) {
@@ -1690,6 +1784,30 @@ function storageKey(tabId) {
 
 function normalizeDownloadSpeed(speedMode) {
   return ['conservative', 'normal', 'fast'].includes(speedMode) ? speedMode : DEFAULT_DOWNLOAD_SETTINGS.speedMode;
+}
+
+async function pruneStoredTabStates(currentKey, maxStates = MAX_SAVED_TAB_STATES) {
+  const stored = await storageGet(null);
+  const tabStates = Object.entries(stored)
+    .filter(([key]) => /^guided_media_\d+$/.test(key))
+    .map(([key, value]) => ({
+      key,
+      savedAt: Number(value?.savedAt) || 0
+    }))
+    .sort((left, right) => right.savedAt - left.savedAt);
+  const keepCount = Math.max(1, Number(maxStates) || 1);
+  const keepKeys = new Set([currentKey]);
+  tabStates
+    .filter((entry) => entry.key !== currentKey)
+    .slice(0, keepCount - 1)
+    .forEach((entry) => keepKeys.add(entry.key));
+  const removeKeys = tabStates
+    .map((entry) => entry.key)
+    .filter((key) => !keepKeys.has(key));
+
+  if (removeKeys.length) {
+    await storageRemove(removeKeys);
+  }
 }
 
 function normalizeStoredDownloadSettings(savedSettings) {
@@ -1764,7 +1882,7 @@ function executeScriptWithArgs(tabId, func, args) {
 
 function storageGet(key) {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.get([key], (result) => {
+    chrome.storage.local.get(key === null ? null : [key], (result) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
         return;
@@ -1830,6 +1948,11 @@ function collectMediaCandidates() {
   const pageUrl = new URL(window.location.href);
   const baseUrl = document.baseURI || window.location.href;
   const candidatesByUrl = new Map();
+  const pagePreviewRegistry = new Map();
+  const maxPagePreviewBytes = 4 * 1024 * 1024;
+  let pagePreviewBytes = 0;
+  let pagePreviewIndex = 0;
+  globalThis.__guidedMediaPreviewData = pagePreviewRegistry;
 
   function normalizeUrl(value) {
     if (!value) {
@@ -1918,13 +2041,13 @@ function collectMediaCandidates() {
 
     try {
       const canvas = document.createElement('canvas');
-      const maxSide = 240;
+      const maxSide = 160;
       const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
       const context = canvas.getContext('2d');
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/jpeg', 0.82);
+      return canvas.toDataURL('image/jpeg', 0.72);
     } catch (error) {
       return '';
     }
@@ -1997,6 +2120,19 @@ function collectMediaCandidates() {
     } catch (error) {
       return '';
     }
+  }
+
+  function registerThumbnailPreview(image) {
+    const dataUrl = thumbnailDataUrl(image);
+    if (!dataUrl || pagePreviewBytes + dataUrl.length > maxPagePreviewBytes) {
+      return '';
+    }
+
+    const key = `preview_${Date.now().toString(36)}_${pagePreviewIndex}`;
+    pagePreviewIndex += 1;
+    pagePreviewBytes += dataUrl.length;
+    pagePreviewRegistry.set(key, dataUrl);
+    return key;
   }
 
   function pixivFallbackUrls(originalUrl, previewUrl, includeAlternateOriginals) {
@@ -2085,6 +2221,7 @@ function collectMediaCandidates() {
       filename: input.filename || '',
       filenameHints: Array.isArray(input.filenameHints) ? input.filenameHints.filter(Boolean) : [],
       fallbackUrls: Array.isArray(input.fallbackUrls) ? input.fallbackUrls.filter(Boolean) : [],
+      pagePreviewKey: input.pagePreviewKey || '',
       downloadMode: input.downloadMode || 'chrome',
       headers: Array.isArray(input.headers) ? input.headers : [],
       pageHost: pageUrl.host,
@@ -2113,6 +2250,9 @@ function collectMediaCandidates() {
     }
     if (!existing.filename && candidate.filename) {
       existing.filename = candidate.filename;
+    }
+    if (!existing.pagePreviewKey && candidate.pagePreviewKey) {
+      existing.pagePreviewKey = candidate.pagePreviewKey;
     }
     existing.filenameHints = Array.from(new Set([
       ...(existing.filenameHints || []),
@@ -2225,7 +2365,8 @@ function collectMediaCandidates() {
   Array.from(document.querySelectorAll('a[href] img[data-fullsize-url], a[href].bbcode-attachment img, img[data-fullsize-url]')).forEach((image) => {
     const parentLink = image.closest ? image.closest('a[href]') : null;
     const fullsizeUrl = parentLink?.href || image.dataset?.fullsizeUrl;
-    const previewUrl = thumbnailDataUrl(image) || image.currentSrc || image.src || image.dataset?.thumbUrl;
+    const previewUrl = image.currentSrc || image.src || image.dataset?.thumbUrl;
+    const pagePreviewKey = registerThumbnailPreview(image);
     const extension = extensionFromUrl(fullsizeUrl) || extensionFromText(image.alt);
     const dimensions = parseDimensions(image.alt);
     const filename = filenameFromText(image.alt);
@@ -2237,10 +2378,12 @@ function collectMediaCandidates() {
       extension,
       filename,
       filenameHints: filenameHintsForElement(image, parentLink),
+      pagePreviewKey,
       downloadMode: 'page',
       source: 'attachment original',
       width: dimensions.width,
       height: dimensions.height,
+      snapshotRect: snapshotRectFromElement(image),
       allowUnknownExtension: true
     });
   });
@@ -2271,15 +2414,17 @@ function collectMediaCandidates() {
 
       addCandidate({
         url: href,
-        previewUrl: image ? thumbnailDataUrl(image) || image.currentSrc || image.src : href,
+        previewUrl: image ? image.currentSrc || image.src : href,
         type: 'image',
         extension,
         filename,
         filenameHints: filenameHintsForElement(image, anchor),
+        pagePreviewKey: registerThumbnailPreview(image),
         downloadMode: 'page',
         source: 'attachment original',
         width: dimensions.width,
         height: dimensions.height,
+        snapshotRect: snapshotRectFromElement(image),
         allowUnknownExtension: true
       });
     });

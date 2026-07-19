@@ -225,3 +225,64 @@ test('Pixiv fallback sources are forwarded to the background worker', () => {
     context.__candidate.fallbackUrls
   );
 });
+
+test('ephemeral preview bytes are removed before candidate state is persisted', () => {
+  const context = createPopupContext();
+  context.__candidate = {
+    id: 'attachment',
+    url: 'https://forum.test/filedata/fetch?id=42',
+    previewUrl: `data:image/jpeg;base64,${'a'.repeat(200000)}`,
+    previewSourceUrl: 'https://forum.test/filedata/fetch?id=42&type=thumb',
+    pagePreviewKey: 'preview_scan_42',
+    previewFetchPending: true,
+    selected: true
+  };
+
+  const stored = evaluate(context, 'serializeCandidateForStorage(__candidate)');
+  assert.equal(stored.previewUrl, context.__candidate.previewSourceUrl);
+  assert.equal(stored.previewSourceUrl, context.__candidate.previewSourceUrl);
+  assert.equal(stored.pagePreviewKey, 'preview_scan_42');
+  assert.equal('previewFetchPending' in stored, false);
+  assert.equal(JSON.stringify(stored).includes('a'.repeat(1000)), false);
+});
+
+test('old persisted data previews fall back to the original URL during migration', () => {
+  const context = createPopupContext();
+  context.__candidate = {
+    id: 'old-preview',
+    url: 'https://forum.test/image/old.jpg',
+    previewUrl: 'data:image/jpeg;base64,old-state'
+  };
+
+  const restored = evaluate(context, 'normalizeStoredCandidate(__candidate)');
+  assert.equal(restored.previewUrl, context.__candidate.url);
+  assert.equal(restored.previewSourceUrl, context.__candidate.url);
+});
+
+test('stale per-tab states are pruned without touching the ignore list', async () => {
+  const context = createPopupContext();
+  const removed = [];
+  context.chrome = {
+    runtime: { lastError: null },
+    storage: {
+      local: {
+        get(_keys, callback) {
+          callback({
+            guided_media_ignore_list: [{ fingerprint: 'keep-me' }],
+            guided_media_1: { savedAt: 100 },
+            guided_media_2: { savedAt: 200 },
+            guided_media_3: { savedAt: 300 },
+            guided_media_9: { savedAt: 50 }
+          });
+        },
+        remove(keys, callback) {
+          removed.push(...keys);
+          callback();
+        }
+      }
+    }
+  };
+
+  await evaluate(context, "pruneStoredTabStates('guided_media_9', 3)");
+  assert.deepEqual(removed.sort(), ['guided_media_1']);
+});

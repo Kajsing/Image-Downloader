@@ -34,6 +34,9 @@ download only the selected media.
 - Uses same-page thumbnail snapshots and timeout-protected page-session fetch
   batches for attachment endpoints that need the page session, then saves
   through Chrome downloads.
+- Keeps same-page thumbnail bytes in a bounded page-side preview registry and
+  retrieves them individually when the popup needs them. Large scans therefore
+  do not send hundreds of encoded thumbnails through one extension message.
 - Supports `jpg`, `png`, `gif`, `webp`, `svg`, `webm`, and `mp4`.
 - Filters by media type, extension, same-origin, and minimum dimension.
 - Defaults the minimum-size filter to 65px to avoid most icons while keeping
@@ -41,8 +44,9 @@ download only the selected media.
 - Supports a local ignore list for repeatedly unwanted media, keyed by stable
   media fingerprints so ignored items stay hidden on future scans.
 - Selection helpers for visible results and likely wallpapers.
-- Per-tab state stored in `chrome.storage.local`, restored only when the current
-  page URL still matches the saved scan.
+- Compact per-tab state stored in `chrome.storage.local`, restored only when the
+  current page URL still matches the saved scan. Temporary preview bytes are
+  never persisted, and stale tab states are pruned automatically.
 - Suggests a stable page/thread-specific subfolder for each batch and lets the
   user edit it before download. All paths remain below `ImageDownloader/`.
 - Resolves filenames from response headers, attachment and DOM metadata, final
