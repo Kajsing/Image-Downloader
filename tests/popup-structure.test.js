@@ -41,7 +41,10 @@ test('large-batch confirmation and abort controls are present', () => {
 
 test('the popup stays below Chromes 600px extension-popup height limit', () => {
   const popupCss = fs.readFileSync(path.join(__dirname, '..', 'popup.css'), 'utf8');
-  assert.match(popupCss, /height:\s*min\(590px,\s*100vh\)/);
+  assert.match(popupCss, /html,\s*\r?\nbody\s*\{[^}]*height:\s*590px;/s);
+  assert.match(popupCss, /html,\s*\r?\nbody\s*\{[^}]*max-height:\s*590px;/s);
+  assert.match(popupCss, /\.app-shell\s*\{[^}]*height:\s*100%;/s);
+  assert.doesNotMatch(popupCss, /height:\s*min\([^;]*100vh/);
   assert.match(popupCss, /grid-template-rows:\s*auto\s+auto\s+minmax\(0,\s*1fr\)\s+auto/);
 });
 

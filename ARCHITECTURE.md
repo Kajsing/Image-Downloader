@@ -39,7 +39,9 @@ The popup is the command surface:
   failed/cancelled items for a precise retry.
 
 The popup is intentionally dense and practical. It should feel like a repeated
-use tool, not a marketing page.
+use tool, not a marketing page. Its document has an explicit 590px height below
+Chrome's 600px popup limit; viewport-relative height is avoided because it can
+collapse while Chrome is deriving the popup window's intrinsic dimensions.
 
 ## Page Scanner
 
